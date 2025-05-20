@@ -5,5 +5,5 @@ export {
 export {
     type KeyCombinationConfig,
     type KeySequenceConfig,
-    HotKeys,
+    Hotkeys,
 } from "./hotkeys.js";

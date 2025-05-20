@@ -85,7 +85,7 @@ function compareKey(eventKey: string, configuredKey: StandardKey): boolean {
  * Allows registration of single key combinations (e.g., Ctrl+S) and key sequences (e.g., g -> i).
  * Supports contexts to enable/disable shortcuts based on application state.
  */
-export class HotKeys {
+export class Hotkeys {
     private static readonly KEYDOWN_EVENT = "keydown";
     private static readonly LOG_PREFIX = "Hotkeys:";
 
@@ -104,14 +104,14 @@ export class HotKeys {
         this.debugMode = debugMode;
 
         if (typeof document === "undefined" || typeof performance === "undefined") {
-            throw new Error(`${HotKeys.LOG_PREFIX} Hotkeys can only be used in a browser environment with global 'document' and 'performance' objects.`);
+            throw new Error(`${Hotkeys.LOG_PREFIX} Hotkeys can only be used in a browser environment with global 'document' and 'performance' objects.`);
         }
-        this.keydown$ = fromEvent<KeyboardEvent>(document, HotKeys.KEYDOWN_EVENT);
+        this.keydown$ = fromEvent<KeyboardEvent>(document, Hotkeys.KEYDOWN_EVENT);
         this.activeContext$ = new BehaviorSubject<string | null>(initialContext);
         this.activeShortcuts = new Map();
 
         if (this.debugMode) {
-            console.log(`${HotKeys.LOG_PREFIX} Library initialized. Initial context: "${initialContext}". Debug mode: ${debugMode}.`);
+            console.log(`${Hotkeys.LOG_PREFIX} Library initialized. Initial context: "${initialContext}". Debug mode: ${debugMode}.`);
         }
     }
 
@@ -124,7 +124,7 @@ export class HotKeys {
      */
     public setContext(contextName: string | null): void {
         if (this.debugMode) {
-            console.log(`${HotKeys.LOG_PREFIX} Context changed to "${contextName}"`);
+            console.log(`${Hotkeys.LOG_PREFIX} Context changed to "${contextName}"`);
         }
         this.activeContext$.next(contextName);
     }
@@ -145,7 +145,7 @@ export class HotKeys {
     public setDebugMode(enable: boolean): void {
         this.debugMode = enable;
         if (this.debugMode) {
-            console.log(`${HotKeys.LOG_PREFIX} Debug mode ${enable ? 'enabled' : 'disabled'}.`);
+            console.log(`${Hotkeys.LOG_PREFIX} Debug mode ${enable ? 'enabled' : 'disabled'}.`);
         }
     }
 
@@ -174,12 +174,12 @@ export class HotKeys {
     ): string {
         const existingShortcut = this.activeShortcuts.get(config.id);
         if (existingShortcut) {
-            console.warn(`${HotKeys.LOG_PREFIX} Shortcut with ID "${config.id}" already exists. It will be overwritten.`);
+            console.warn(`${Hotkeys.LOG_PREFIX} Shortcut with ID "${config.id}" already exists. It will be overwritten.`);
             existingShortcut.subscription.unsubscribe();
         }
         this.activeShortcuts.set(config.id, { id: config.id, config, subscription });
         if (this.debugMode) {
-            console.log(`${HotKeys.LOG_PREFIX} ${type} shortcut "${config.id}" added. ${detailsForLog}, Context: ${config.context ?? "any"}`);
+            console.log(`${Hotkeys.LOG_PREFIX} ${type} shortcut "${config.id}" added. ${detailsForLog}, Context: ${config.context ?? "any"}`);
         }
         return config.id;
     }
@@ -207,7 +207,7 @@ export class HotKeys {
         const { keys, callback, context, preventDefault = false, id } = config;
 
         if (!keys || !keys.key || typeof keys.key !== 'string' || keys.key.trim() === '') {
-            console.warn(`${HotKeys.LOG_PREFIX} Invalid 'keys.key' for combination shortcut "${id}". Key must be a non-empty value from Keys. Shortcut not added.`);
+            console.warn(`${Hotkeys.LOG_PREFIX} Invalid 'keys.key' for combination shortcut "${id}". Key must be a non-empty value from Keys. Shortcut not added.`);
             return undefined;
         }
 
@@ -224,12 +224,12 @@ export class HotKeys {
             tap(event => {
                 if (this.debugMode) {
                     const preventAction = preventDefault ? ", preventing default" : "";
-                    console.log(`${HotKeys.LOG_PREFIX} Combination "${id}" triggered${preventAction}.`);
+                    console.log(`${Hotkeys.LOG_PREFIX} Combination "${id}" triggered${preventAction}.`);
                 }
                 if (preventDefault) event.preventDefault();
             }),
             catchError(err => {
-                console.error(`${HotKeys.LOG_PREFIX} Error in combination stream for shortcut "${id}":`, err);
+                console.error(`${Hotkeys.LOG_PREFIX} Error in combination stream for shortcut "${id}":`, err);
                 return EMPTY;
             })
         );
@@ -237,7 +237,7 @@ export class HotKeys {
             try {
                 callback(event);
             } catch (e) {
-                console.error(`${HotKeys.LOG_PREFIX} Error in user callback for combination shortcut "${id}":`, e);
+                console.error(`${Hotkeys.LOG_PREFIX} Error in user callback for combination shortcut "${id}":`, e);
             }
         });
 
@@ -274,11 +274,11 @@ export class HotKeys {
         const { sequence, callback, context, preventDefault = false, id, sequenceTimeoutMs } = config;
 
         if (!Array.isArray(sequence) || sequence.length === 0) {
-            console.warn(`${HotKeys.LOG_PREFIX} Sequence for shortcut "${id}" is empty or invalid. Shortcut not added.`);
+            console.warn(`${Hotkeys.LOG_PREFIX} Sequence for shortcut "${id}" is empty or invalid. Shortcut not added.`);
             return undefined;
         }
         if (sequence.some(key => typeof key !== 'string' || key.trim() === '')) {
-            console.warn(`${HotKeys.LOG_PREFIX} Invalid key in sequence for shortcut "${id}". All keys must be non-empty strings from Keys. Shortcut not added.`);
+            console.warn(`${Hotkeys.LOG_PREFIX} Invalid key in sequence for shortcut "${id}". All keys must be non-empty strings from Keys. Shortcut not added.`);
             return undefined;
         }
 
@@ -307,7 +307,7 @@ export class HotKeys {
 
                         if (matchedEvents.length > 0 && (currentTime - lastEventTime > sequenceTimeoutMs)) {
                             if (this.debugMode) {
-                                console.log(`${HotKeys.LOG_PREFIX} Sequence "${id}" (timeout: ${sequenceTimeoutMs}ms) attempt timed out. Matched: ${matchedEvents.map(e=>e.key).join(',')}. Resetting.`);
+                                console.log(`${Hotkeys.LOG_PREFIX} Sequence "${id}" (timeout: ${sequenceTimeoutMs}ms) attempt timed out. Matched: ${matchedEvents.map(e=>e.key).join(',')}. Resetting.`);
                             }
                             matchedEvents = [];
                         }
@@ -324,14 +324,14 @@ export class HotKeys {
                         if (compareKey(event.key, configuredSequence[nextExpectedKeyIndex])) {
                             const newMatchedEvents = [...matchedEvents, event];
                             if (newMatchedEvents.length === sequenceLength) {
-                                if (this.debugMode) console.log(`${HotKeys.LOG_PREFIX} Sequence "${id}" (timeout: ${sequenceTimeoutMs}ms) matched.`);
+                                if (this.debugMode) console.log(`${Hotkeys.LOG_PREFIX} Sequence "${id}" (timeout: ${sequenceTimeoutMs}ms) matched.`);
                                 return { matchedEvents: newMatchedEvents, lastEventTime: currentTime, emitState: 'emit' };
                             } else {
                                 return { matchedEvents: newMatchedEvents, lastEventTime: currentTime, emitState: 'in-progress' };
                             }
                         } else {
                             if (matchedEvents.length > 0 && this.debugMode) {
-                                 console.log(`${HotKeys.LOG_PREFIX} Sequence "${id}" (timeout: ${sequenceTimeoutMs}ms) broken by key "${event.key}". Matched: ${matchedEvents.map(e=>e.key).join(',')}. Resetting.`);
+                                 console.log(`${Hotkeys.LOG_PREFIX} Sequence "${id}" (timeout: ${sequenceTimeoutMs}ms) broken by key "${event.key}". Matched: ${matchedEvents.map(e=>e.key).join(',')}. Resetting.`);
                             }
                             if (sequenceLength > 0 && compareKey(event.key, configuredSequence[0])) {
                                 return { matchedEvents: [event], lastEventTime: currentTime, emitState: 'in-progress' };
@@ -360,14 +360,14 @@ export class HotKeys {
                 if (this.debugMode) {
                     const timeoutInfo = (sequenceTimeoutMs && sequenceTimeoutMs > 0) ? ` (with timeout logic)` : ` (no timeout logic)`;
                     const preventAction = preventDefault ? ", preventing default for last event" : "";
-                    console.log(`${HotKeys.LOG_PREFIX} Sequence "${id}" triggered${timeoutInfo}${preventAction}.`);
+                    console.log(`${Hotkeys.LOG_PREFIX} Sequence "${id}" triggered${timeoutInfo}${preventAction}.`);
                 }
                 if (preventDefault && events.length > 0) {
                     events[events.length - 1].preventDefault();
                 }
             }),
             catchError(err => {
-                console.error(`${HotKeys.LOG_PREFIX} Error in sequence stream for shortcut "${id}":`, err);
+                console.error(`${Hotkeys.LOG_PREFIX} Error in sequence stream for shortcut "${id}":`, err);
                 return EMPTY;
             })
         );
@@ -376,7 +376,7 @@ export class HotKeys {
             try {
                 if (events.length > 0) callback(events[events.length - 1]);
             } catch (e) {
-                console.error(`${HotKeys.LOG_PREFIX} Error in user callback for sequence shortcut "${id}":`, e);
+                console.error(`${Hotkeys.LOG_PREFIX} Error in user callback for sequence shortcut "${id}":`, e);
             }
         });
 
@@ -396,10 +396,10 @@ export class HotKeys {
         if (shortcut) {
             shortcut.subscription.unsubscribe();
             this.activeShortcuts.delete(id);
-            if (this.debugMode) console.log(`${HotKeys.LOG_PREFIX} Shortcut "${id}" removed.`);
+            if (this.debugMode) console.log(`${Hotkeys.LOG_PREFIX} Shortcut "${id}" removed.`);
             return true;
         }
-        console.warn(`${HotKeys.LOG_PREFIX} Shortcut with ID "${id}" not found for removal.`);
+        console.warn(`${Hotkeys.LOG_PREFIX} Shortcut with ID "${id}" not found for removal.`);
         return false;
     }
 
@@ -430,10 +430,10 @@ export class HotKeys {
      * After calling `destroy()`, the instance should not be used further.
      */
     public destroy(): void {
-        if (this.debugMode) console.log(`${HotKeys.LOG_PREFIX} Destroying library instance and unsubscribing all shortcuts.`);
+        if (this.debugMode) console.log(`${Hotkeys.LOG_PREFIX} Destroying library instance and unsubscribing all shortcuts.`);
         this.activeShortcuts.forEach(shortcut => shortcut.subscription.unsubscribe());
         this.activeShortcuts.clear();
         this.activeContext$.complete(); // Complete the BehaviorSubject to release its resources
-        if (this.debugMode) console.log(`${HotKeys.LOG_PREFIX} Library destroyed.`);
+        if (this.debugMode) console.log(`${Hotkeys.LOG_PREFIX} Library destroyed.`);
     }
 }

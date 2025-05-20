@@ -26,18 +26,18 @@ npm install rxjs rx-hotkeys
 First, ensure you have the `rx-hotkeys` library and its helper Keys imported:
 
 ```typescript
-import { HotKeys, Keys, KeyCombinationConfig, KeySequenceConfig } from 'rx-hotkeys';
+import { Hotkeys, Keys, KeyCombinationConfig, KeySequenceConfig } from 'rx-hotkeys';
 ```
 
-1. Initialize HotKeys
+1. Initialize Hotkeys
 
 Create an instance of the `Hotkeys` class. You can optionally provide an initial context and enable debug mode.
 
 ```typescript
-const keyManager = new HotKeys(); // No initial context, debug mode off
+const keyManager = new Hotkeys(); // No initial context, debug mode off
 
 // With an initial context and debug mode enabled:
-// const keyManager = new HotKeys('editor', true);
+// const keyManager = new Hotkeys('editor', true);
 ```
 
 2. Add a Key Combination
@@ -93,7 +93,7 @@ keyManager.setContext(null);
 
 5. Clean Up
 
-When the HotKeys instance is no longer needed (e.g., component unmount), call `destroy()` to clean up subscriptions and prevent memory leaks.
+When the Hotkeys instance is no longer needed (e.g., component unmount), call `destroy()` to clean up subscriptions and prevent memory leaks.
 
 ```typescript
 // In a component lifecycle cleanup method or similar:
@@ -108,11 +108,11 @@ keyManager.destroy();
 * `Keys`: An exported constant object containing standard KeyboardEvent.key string values (e.g., Keys.Enter, Keys.ArrowUp, Keys.A). It's highly recommended to use these when defining key in `KeyCombinationConfig` or keys in the sequence array of `KeySequenceConfig`.
 * `StandardKey`: A TypeScript type representing any valid key string from the Keys object.
 
-### `HotKeys` Class
+### `Hotkeys` Class
 
 `constructor(initialContext?: string | null, debugMode?: boolean)`
 
-Creates a new HotKeys instance.
+Creates a new Hotkeys instance.
 
 `addCombination(config: KeyCombinationConfig): string | undefined`
 

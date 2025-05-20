@@ -1,6 +1,6 @@
 {
   "name": "rx-hotkeys",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "type": "module",
   "scripts": {
     "build": "tsc",
@@ -14,7 +14,12 @@
       "types": "./dist/index.d.ts"
     }
   },
-  "keywords": ["rxjs", "hotkeys", "hotkey", "key"],
+  "keywords": [
+    "rxjs",
+    "hotkeys",
+    "hotkey",
+    "key"
+  ],
   "author": "Colin Cheng <zbinlin@outlook.com>",
   "repository": {
     "type": "git",

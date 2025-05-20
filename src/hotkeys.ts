@@ -151,8 +151,18 @@ export class Hotkeys {
      * Pass `null` to activate shortcuts with no context or to deactivate context-specific shortcuts.
      */
     public setContext(contextName: string | null): void {
+        if (this.activeContext$.getValue() === contextName) {
+            if (this.debugMode) {
+                // Optional: Log that no change is happening, or simply do nothing.
+                console.log(`${Hotkeys.LOG_PREFIX} setContext called with the same context "${contextName}". No change made.`);
+            }
+            return; // Context is the same, so no further action is needed.
+        }
+
+        // If we reach here, the context is actually changing.
+        const oldContext = this.activeContext$.getValue(); // For more informative logging
         if (this.debugMode) {
-            console.log(`${Hotkeys.LOG_PREFIX} Context changed to "${contextName}"`);
+            console.log(`${Hotkeys.LOG_PREFIX} Context changed from "${oldContext}" to "${contextName}".`);
         }
         this.activeContext$.next(contextName);
     }
@@ -171,10 +181,38 @@ export class Hotkeys {
      * @param enable - True to enable debug logs, false to disable.
      */
     public setDebugMode(enable: boolean): void {
-        this.debugMode = enable;
-        if (this.debugMode) {
-            console.log(`${Hotkeys.LOG_PREFIX} Debug mode ${enable ? "enabled" : "disabled"}.`);
+        if (this.debugMode === enable) { // Check if state is actually changing
+            return; // If no change, do nothing (no log)
         }
+
+        this.debugMode = enable; // Set the new state
+        if (enable) { // Log based on the NEW state after a change
+            console.log(`${Hotkeys.LOG_PREFIX} Debug mode enabled.`);
+        } else {
+            console.log(`${Hotkeys.LOG_PREFIX} Debug mode disabled.`);
+        }
+    }
+
+    /**
+     * An Observable that emits the new context name (or null) whenever the active context changes.
+     * This allows external parts of the application to react to context transitions.
+     *
+     * Note: This observable benefits from the distinct check within the `setContext` method,
+     * meaning it will only emit when the context value actually changes.
+     *
+     * @example
+     * ```typescript
+     * const hotkeys = new Hotkeys();
+     * const subscription = hotkeys.onContextChange$.subscribe(newContext => {
+     * console.log("Hotkey context changed to:", newContext);
+     * // Update UI or perform other actions
+     * });
+     * // To unsubscribe when no longer needed:
+     * // subscription.unsubscribe();
+     * ```
+     */
+    public get onContextChange$(): Observable<string | null> {
+        return this.activeContext$.asObservable();
     }
 
     /**

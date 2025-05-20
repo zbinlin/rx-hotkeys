@@ -1,5 +1,5 @@
 {
-  "name": "rx-keyshuts",
+  "name": "rx-hotkeys",
   "version": "1.0.0",
   "type": "module",
   "scripts": {
@@ -14,11 +14,11 @@
       "types": "./dist/index.d.ts"
     }
   },
-  "keywords": ["rxjs", "keyshuts", "hotkey", "key"],
+  "keywords": ["rxjs", "hotkeys", "hotkey", "key"],
   "author": "Colin Cheng <zbinlin@outlook.com>",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/zbinlin/rx-keyshuts.git"
+    "url": "git+https://github.com/zbinlin/rx-hotkeys.git"
   },
   "files": [
     "./dist/",

@@ -1,6 +1,6 @@
-# rx-keyshuts: Advanced Keyboard Shortcut Management using rxjs
+# rx-hotkeys: Advanced Keyboard Shortcut Management using rxjs
 
-rx-keyshuts is a powerful and flexible TypeScript library for managing keyboard shortcuts in web applications. It leverages RxJS to handle keyboard events, allowing for the registration of simple key combinations (e.g., `Ctrl+S`) and complex key sequences (e.g., `g` -> `i` for "go to inbox"). It supports contexts for enabling/disabling shortcuts based on application state, and provides a type-safe way to define keys using standard `KeyboardEvent.key` values.
+rx-hotkeys is a powerful and flexible TypeScript library for managing keyboard shortcuts in web applications. It leverages RxJS to handle keyboard events, allowing for the registration of simple key combinations (e.g., `Ctrl+S`) and complex key sequences (e.g., `g` -> `i` for "go to inbox"). It supports contexts for enabling/disabling shortcuts based on application state, and provides a type-safe way to define keys using standard `KeyboardEvent.key` values.
 
 ## Features
 
@@ -17,25 +17,27 @@ rx-keyshuts is a powerful and flexible TypeScript library for managing keyboard 
 ## Installation
 
 ```bash
-npm install rxjs rx-keyshuts
+npm install rxjs rx-hotkeys
 ```
 
 
 ## Basic Usage
 
-First, ensure you have the `rx-keyshuts` library and its helper Keys imported:
+First, ensure you have the `rx-hotkeys` library and its helper Keys imported:
 
 ```typescript
-import { KeyShuts, Keys, KeyCombinationConfig, KeySequenceConfig } from 'rx-keyshuts';
+import { HotKeys, Keys, KeyCombinationConfig, KeySequenceConfig } from 'rx-hotkeys';
 ```
 
-1. Initialize KeyShutsCreate an instance of the KeyShuts class. You can optionally provide an initial context and enable debug mode.
+1. Initialize HotKeys
+
+Create an instance of the `Hotkeys` class. You can optionally provide an initial context and enable debug mode.
 
 ```typescript
-const keyManager = new KeyShuts(); // No initial context, debug mode off
+const keyManager = new HotKeys(); // No initial context, debug mode off
 
 // With an initial context and debug mode enabled:
-// const keyManager = new KeyShuts('editor', true);
+// const keyManager = new HotKeys('editor', true);
 ```
 
 2. Add a Key Combination
@@ -91,7 +93,7 @@ keyManager.setContext(null);
 
 5. Clean Up
 
-When the KeyShuts instance is no longer needed (e.g., component unmount), call `destroy()` to clean up subscriptions and prevent memory leaks.
+When the HotKeys instance is no longer needed (e.g., component unmount), call `destroy()` to clean up subscriptions and prevent memory leaks.
 
 ```typescript
 // In a component lifecycle cleanup method or similar:
@@ -106,11 +108,11 @@ keyManager.destroy();
 * `Keys`: An exported constant object containing standard KeyboardEvent.key string values (e.g., Keys.Enter, Keys.ArrowUp, Keys.A). It's highly recommended to use these when defining key in `KeyCombinationConfig` or keys in the sequence array of `KeySequenceConfig`.
 * `StandardKey`: A TypeScript type representing any valid key string from the Keys object.
 
-### `KeyShuts` Class
+### `HotKeys` Class
 
 `constructor(initialContext?: string | null, debugMode?: boolean)`
 
-Creates a new KeyShuts instance.
+Creates a new HotKeys instance.
 
 `addCombination(config: KeyCombinationConfig): string | undefined`
 

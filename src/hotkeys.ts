@@ -78,16 +78,16 @@ function compareKey(eventKey: string, configuredKey: StandardKey): boolean {
 }
 
 
-// --- KeyShuts Library ---
+// --- Hotkeys Library ---
 
 /**
  * Manages keyboard shortcuts for web applications.
  * Allows registration of single key combinations (e.g., Ctrl+S) and key sequences (e.g., g -> i).
  * Supports contexts to enable/disable shortcuts based on application state.
  */
-export class KeyShuts {
+export class HotKeys {
     private static readonly KEYDOWN_EVENT = "keydown";
-    private static readonly LOG_PREFIX = "KeyShuts:";
+    private static readonly LOG_PREFIX = "Hotkeys:";
 
     private keydown$: Observable<KeyboardEvent>;
     private activeContext$: BehaviorSubject<string | null>;
@@ -95,7 +95,7 @@ export class KeyShuts {
     private debugMode: boolean;
 
     /**
-     * Creates an instance of KeyShuts.
+     * Creates an instance of Hotkeys.
      * @param initialContext - Optional initial context name. Shortcuts will only trigger if their context matches this, or if they have no context defined.
      * @param debugMode - Optional. If true, debug messages will be logged to the console. Defaults to false.
      * @throws Error if not in a browser environment (i.e., `document` or `performance` is undefined).
@@ -104,14 +104,14 @@ export class KeyShuts {
         this.debugMode = debugMode;
 
         if (typeof document === "undefined" || typeof performance === "undefined") {
-            throw new Error(`${KeyShuts.LOG_PREFIX} KeyShuts can only be used in a browser environment with global 'document' and 'performance' objects.`);
+            throw new Error(`${HotKeys.LOG_PREFIX} Hotkeys can only be used in a browser environment with global 'document' and 'performance' objects.`);
         }
-        this.keydown$ = fromEvent<KeyboardEvent>(document, KeyShuts.KEYDOWN_EVENT);
+        this.keydown$ = fromEvent<KeyboardEvent>(document, HotKeys.KEYDOWN_EVENT);
         this.activeContext$ = new BehaviorSubject<string | null>(initialContext);
         this.activeShortcuts = new Map();
 
         if (this.debugMode) {
-            console.log(`${KeyShuts.LOG_PREFIX} Library initialized. Initial context: "${initialContext}". Debug mode: ${debugMode}.`);
+            console.log(`${HotKeys.LOG_PREFIX} Library initialized. Initial context: "${initialContext}". Debug mode: ${debugMode}.`);
         }
     }
 
@@ -124,7 +124,7 @@ export class KeyShuts {
      */
     public setContext(contextName: string | null): void {
         if (this.debugMode) {
-            console.log(`${KeyShuts.LOG_PREFIX} Context changed to "${contextName}"`);
+            console.log(`${HotKeys.LOG_PREFIX} Context changed to "${contextName}"`);
         }
         this.activeContext$.next(contextName);
     }
@@ -138,14 +138,14 @@ export class KeyShuts {
     }
 
     /**
-     * Enables or disables debug logging for the KeyShuts instance.
+     * Enables or disables debug logging for the Hotkeys instance.
      * When enabled, various internal actions and shortcut triggers will be logged to the console.
      * @param enable - True to enable debug logs, false to disable.
      */
     public setDebugMode(enable: boolean): void {
         this.debugMode = enable;
         if (this.debugMode) {
-            console.log(`${KeyShuts.LOG_PREFIX} Debug mode ${enable ? 'enabled' : 'disabled'}.`);
+            console.log(`${HotKeys.LOG_PREFIX} Debug mode ${enable ? 'enabled' : 'disabled'}.`);
         }
     }
 
@@ -174,12 +174,12 @@ export class KeyShuts {
     ): string {
         const existingShortcut = this.activeShortcuts.get(config.id);
         if (existingShortcut) {
-            console.warn(`${KeyShuts.LOG_PREFIX} Shortcut with ID "${config.id}" already exists. It will be overwritten.`);
+            console.warn(`${HotKeys.LOG_PREFIX} Shortcut with ID "${config.id}" already exists. It will be overwritten.`);
             existingShortcut.subscription.unsubscribe();
         }
         this.activeShortcuts.set(config.id, { id: config.id, config, subscription });
         if (this.debugMode) {
-            console.log(`${KeyShuts.LOG_PREFIX} ${type} shortcut "${config.id}" added. ${detailsForLog}, Context: ${config.context ?? "any"}`);
+            console.log(`${HotKeys.LOG_PREFIX} ${type} shortcut "${config.id}" added. ${detailsForLog}, Context: ${config.context ?? "any"}`);
         }
         return config.id;
     }
@@ -207,7 +207,7 @@ export class KeyShuts {
         const { keys, callback, context, preventDefault = false, id } = config;
 
         if (!keys || !keys.key || typeof keys.key !== 'string' || keys.key.trim() === '') {
-            console.warn(`${KeyShuts.LOG_PREFIX} Invalid 'keys.key' for combination shortcut "${id}". Key must be a non-empty value from Keys. Shortcut not added.`);
+            console.warn(`${HotKeys.LOG_PREFIX} Invalid 'keys.key' for combination shortcut "${id}". Key must be a non-empty value from Keys. Shortcut not added.`);
             return undefined;
         }
 
@@ -224,12 +224,12 @@ export class KeyShuts {
             tap(event => {
                 if (this.debugMode) {
                     const preventAction = preventDefault ? ", preventing default" : "";
-                    console.log(`${KeyShuts.LOG_PREFIX} Combination "${id}" triggered${preventAction}.`);
+                    console.log(`${HotKeys.LOG_PREFIX} Combination "${id}" triggered${preventAction}.`);
                 }
                 if (preventDefault) event.preventDefault();
             }),
             catchError(err => {
-                console.error(`${KeyShuts.LOG_PREFIX} Error in combination stream for shortcut "${id}":`, err);
+                console.error(`${HotKeys.LOG_PREFIX} Error in combination stream for shortcut "${id}":`, err);
                 return EMPTY;
             })
         );
@@ -237,7 +237,7 @@ export class KeyShuts {
             try {
                 callback(event);
             } catch (e) {
-                console.error(`${KeyShuts.LOG_PREFIX} Error in user callback for combination shortcut "${id}":`, e);
+                console.error(`${HotKeys.LOG_PREFIX} Error in user callback for combination shortcut "${id}":`, e);
             }
         });
 
@@ -274,11 +274,11 @@ export class KeyShuts {
         const { sequence, callback, context, preventDefault = false, id, sequenceTimeoutMs } = config;
 
         if (!Array.isArray(sequence) || sequence.length === 0) {
-            console.warn(`${KeyShuts.LOG_PREFIX} Sequence for shortcut "${id}" is empty or invalid. Shortcut not added.`);
+            console.warn(`${HotKeys.LOG_PREFIX} Sequence for shortcut "${id}" is empty or invalid. Shortcut not added.`);
             return undefined;
         }
         if (sequence.some(key => typeof key !== 'string' || key.trim() === '')) {
-            console.warn(`${KeyShuts.LOG_PREFIX} Invalid key in sequence for shortcut "${id}". All keys must be non-empty strings from Keys. Shortcut not added.`);
+            console.warn(`${HotKeys.LOG_PREFIX} Invalid key in sequence for shortcut "${id}". All keys must be non-empty strings from Keys. Shortcut not added.`);
             return undefined;
         }
 
@@ -307,7 +307,7 @@ export class KeyShuts {
 
                         if (matchedEvents.length > 0 && (currentTime - lastEventTime > sequenceTimeoutMs)) {
                             if (this.debugMode) {
-                                console.log(`${KeyShuts.LOG_PREFIX} Sequence "${id}" (timeout: ${sequenceTimeoutMs}ms) attempt timed out. Matched: ${matchedEvents.map(e=>e.key).join(',')}. Resetting.`);
+                                console.log(`${HotKeys.LOG_PREFIX} Sequence "${id}" (timeout: ${sequenceTimeoutMs}ms) attempt timed out. Matched: ${matchedEvents.map(e=>e.key).join(',')}. Resetting.`);
                             }
                             matchedEvents = [];
                         }
@@ -324,14 +324,14 @@ export class KeyShuts {
                         if (compareKey(event.key, configuredSequence[nextExpectedKeyIndex])) {
                             const newMatchedEvents = [...matchedEvents, event];
                             if (newMatchedEvents.length === sequenceLength) {
-                                if (this.debugMode) console.log(`${KeyShuts.LOG_PREFIX} Sequence "${id}" (timeout: ${sequenceTimeoutMs}ms) matched.`);
+                                if (this.debugMode) console.log(`${HotKeys.LOG_PREFIX} Sequence "${id}" (timeout: ${sequenceTimeoutMs}ms) matched.`);
                                 return { matchedEvents: newMatchedEvents, lastEventTime: currentTime, emitState: 'emit' };
                             } else {
                                 return { matchedEvents: newMatchedEvents, lastEventTime: currentTime, emitState: 'in-progress' };
                             }
                         } else {
                             if (matchedEvents.length > 0 && this.debugMode) {
-                                 console.log(`${KeyShuts.LOG_PREFIX} Sequence "${id}" (timeout: ${sequenceTimeoutMs}ms) broken by key "${event.key}". Matched: ${matchedEvents.map(e=>e.key).join(',')}. Resetting.`);
+                                 console.log(`${HotKeys.LOG_PREFIX} Sequence "${id}" (timeout: ${sequenceTimeoutMs}ms) broken by key "${event.key}". Matched: ${matchedEvents.map(e=>e.key).join(',')}. Resetting.`);
                             }
                             if (sequenceLength > 0 && compareKey(event.key, configuredSequence[0])) {
                                 return { matchedEvents: [event], lastEventTime: currentTime, emitState: 'in-progress' };
@@ -360,14 +360,14 @@ export class KeyShuts {
                 if (this.debugMode) {
                     const timeoutInfo = (sequenceTimeoutMs && sequenceTimeoutMs > 0) ? ` (with timeout logic)` : ` (no timeout logic)`;
                     const preventAction = preventDefault ? ", preventing default for last event" : "";
-                    console.log(`${KeyShuts.LOG_PREFIX} Sequence "${id}" triggered${timeoutInfo}${preventAction}.`);
+                    console.log(`${HotKeys.LOG_PREFIX} Sequence "${id}" triggered${timeoutInfo}${preventAction}.`);
                 }
                 if (preventDefault && events.length > 0) {
                     events[events.length - 1].preventDefault();
                 }
             }),
             catchError(err => {
-                console.error(`${KeyShuts.LOG_PREFIX} Error in sequence stream for shortcut "${id}":`, err);
+                console.error(`${HotKeys.LOG_PREFIX} Error in sequence stream for shortcut "${id}":`, err);
                 return EMPTY;
             })
         );
@@ -376,7 +376,7 @@ export class KeyShuts {
             try {
                 if (events.length > 0) callback(events[events.length - 1]);
             } catch (e) {
-                console.error(`${KeyShuts.LOG_PREFIX} Error in user callback for sequence shortcut "${id}":`, e);
+                console.error(`${HotKeys.LOG_PREFIX} Error in user callback for sequence shortcut "${id}":`, e);
             }
         });
 
@@ -396,10 +396,10 @@ export class KeyShuts {
         if (shortcut) {
             shortcut.subscription.unsubscribe();
             this.activeShortcuts.delete(id);
-            if (this.debugMode) console.log(`${KeyShuts.LOG_PREFIX} Shortcut "${id}" removed.`);
+            if (this.debugMode) console.log(`${HotKeys.LOG_PREFIX} Shortcut "${id}" removed.`);
             return true;
         }
-        console.warn(`${KeyShuts.LOG_PREFIX} Shortcut with ID "${id}" not found for removal.`);
+        console.warn(`${HotKeys.LOG_PREFIX} Shortcut with ID "${id}" not found for removal.`);
         return false;
     }
 
@@ -424,16 +424,16 @@ export class KeyShuts {
     }
 
     /**
-     * Cleans up all active subscriptions and resources used by the KeyShuts instance.
-     * This method should be called when the KeyShuts instance is no longer needed
+     * Cleans up all active subscriptions and resources used by the Hotkeys instance.
+     * This method should be called when the Hotkeys instance is no longer needed
      * (e.g., when a component unmounts or the application is shutting down) to prevent memory leaks.
      * After calling `destroy()`, the instance should not be used further.
      */
     public destroy(): void {
-        if (this.debugMode) console.log(`${KeyShuts.LOG_PREFIX} Destroying library instance and unsubscribing all shortcuts.`);
+        if (this.debugMode) console.log(`${HotKeys.LOG_PREFIX} Destroying library instance and unsubscribing all shortcuts.`);
         this.activeShortcuts.forEach(shortcut => shortcut.subscription.unsubscribe());
         this.activeShortcuts.clear();
         this.activeContext$.complete(); // Complete the BehaviorSubject to release its resources
-        if (this.debugMode) console.log(`${KeyShuts.LOG_PREFIX} Library destroyed.`);
+        if (this.debugMode) console.log(`${HotKeys.LOG_PREFIX} Library destroyed.`);
     }
 }

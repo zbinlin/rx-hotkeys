@@ -1,7 +1,7 @@
 import { describe, it, before, beforeEach, afterEach, mock } from "node:test";
 import assert from "node:assert";
 // Importing main library components
-import { KeyShuts, type KeyCombinationConfig, type KeySequenceConfig } from "./keyshuts.js";
+import { HotKeys, type KeyCombinationConfig, type KeySequenceConfig } from "./hotkeys.js";
 // Importing Keys and StandardKey from the separate keys.js file
 import { Keys, type StandardKey } from "./keys.js";
 import { fromEvent, BehaviorSubject } from "rxjs";
@@ -46,15 +46,15 @@ before(() => {
     }
 });
 
-describe("KeyShuts Library (Node.js Test Runner)", () => {
-    let keyManager: KeyShuts;
+describe("Hotkeys Library (Node.js Test Runner)", () => {
+    let keyManager: HotKeys;
     let mockCallback: ReturnType<typeof createMockFn>;
     let consoleWarnMock: any;
     let consoleErrorMock: any;
     let performanceNowMock: any; // To mock global.performance.now specifically for sequence tests
 
     beforeEach(() => {
-        keyManager = new KeyShuts(null, false);
+        keyManager = new HotKeys(null, false);
         mockCallback = createMockFn();
         consoleWarnMock = mock.method(console, "warn");
         consoleErrorMock = mock.method(console, "error");
@@ -80,7 +80,7 @@ describe("KeyShuts Library (Node.js Test Runner)", () => {
 
     describe("Initialization and Basic Context", () => {
         it("should initialize without errors", () => {
-            assert(keyManager instanceof KeyShuts);
+            assert(keyManager instanceof HotKeys);
         });
 
         it("should initialize with a null context by default", () => {
@@ -88,7 +88,7 @@ describe("KeyShuts Library (Node.js Test Runner)", () => {
         });
 
         it("should initialize with a given initial context", () => {
-            const manager = new KeyShuts("editor");
+            const manager = new HotKeys("editor");
             assert.strictEqual(manager.getContext(), "editor");
             manager.destroy();
         });

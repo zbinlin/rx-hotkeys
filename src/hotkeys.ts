@@ -4,7 +4,12 @@ import {
 } from "rxjs";
 import { StandardKey } from "./keys.js";
 
-// --- Interfaces and Types ---
+// --- Enums, Interfaces and Types ---
+
+export enum ShortcutTypes {
+    Combination = "combination",
+    Sequence = "sequence"
+}
 
 interface ShortcutConfigBase {
     id: string;
@@ -15,6 +20,17 @@ interface ShortcutConfigBase {
 }
 
 export interface KeyCombinationConfig extends ShortcutConfigBase {
+    /**
+     * Defines the key or key combination.
+     * Can be an object specifying the main `key` (from `StandardKey`) and optional
+     * modifiers (`ctrlKey`, `altKey`, `shiftKey`, `metaKey`).
+     * Example: `{ key: Keys.S, ctrlKey: true }` for Ctrl+S.
+     *
+     * Alternatively, for a simple key press without any modifiers, this can be
+     * a `StandardKey` directly.
+     * Example: `Keys.Escape` for the Escape key. When using this shorthand,
+     * it implies that no modifier keys (Ctrl, Alt, Shift, Meta) should be active.
+     */
     keys: {
         /**
          * The main key for the combination.
@@ -31,7 +47,7 @@ export interface KeyCombinationConfig extends ShortcutConfigBase {
         altKey?: boolean;
         shiftKey?: boolean;
         metaKey?: boolean;
-    };
+    } | StandardKey;
 }
 
 export interface KeySequenceConfig extends ShortcutConfigBase {
@@ -80,6 +96,18 @@ function compareKey(eventKey: string, configuredKey: StandardKey): boolean {
 
 // --- Hotkeys Library ---
 
+enum EmitStates {
+    Emit,
+    Ignore,
+    InProgress,
+}
+
+interface SequenceScanState {
+    matchedEvents: KeyboardEvent[];
+    lastEventTime: number;
+    emitState: EmitStates;
+}
+
 /**
  * Manages keyboard shortcuts for web applications.
  * Allows registration of single key combinations (e.g., Ctrl+S) and key sequences (e.g., g -> i).
@@ -104,7 +132,7 @@ export class Hotkeys {
         this.debugMode = debugMode;
 
         if (typeof document === "undefined" || typeof performance === "undefined") {
-            throw new Error(`${Hotkeys.LOG_PREFIX} Hotkeys can only be used in a browser environment with global 'document' and 'performance' objects.`);
+            throw new Error(`${Hotkeys.LOG_PREFIX} Hotkeys can only be used in a browser environment with global "document" and "performance" objects.`);
         }
         this.keydown$ = fromEvent<KeyboardEvent>(document, Hotkeys.KEYDOWN_EVENT);
         this.activeContext$ = new BehaviorSubject<string | null>(initialContext);
@@ -145,7 +173,7 @@ export class Hotkeys {
     public setDebugMode(enable: boolean): void {
         this.debugMode = enable;
         if (this.debugMode) {
-            console.log(`${Hotkeys.LOG_PREFIX} Debug mode ${enable ? 'enabled' : 'disabled'}.`);
+            console.log(`${Hotkeys.LOG_PREFIX} Debug mode ${enable ? "enabled" : "disabled"}.`);
         }
     }
 
@@ -169,7 +197,7 @@ export class Hotkeys {
     private _registerShortcut(
         config: ShortcutConfig,
         subscription: Subscription,
-        type: "Combination" | "Sequence",
+        type: ShortcutTypes, // Changed to use Enum
         detailsForLog: string
     ): string {
         const existingShortcut = this.activeShortcuts.get(config.id);
@@ -185,41 +213,84 @@ export class Hotkeys {
     }
 
     /**
-     * Registers a key combination shortcut (e.g., Ctrl+S, Shift+Enter).
-     * The callback is triggered when the specified key and modifier keys are pressed simultaneously.
+     * Registers a key combination shortcut (e.g., Ctrl+S, Shift+Enter, or a single key like Escape).
+     * The callback is triggered when the specified key and modifier keys (if any) are pressed.
      * @param config - Configuration object for the key combination.
      * See {@link KeyCombinationConfig} for details.
-     * The `key` property within `config.keys` must be a value from the `Keys` object.
-     * @returns The ID of the registered shortcut if successful, or `undefined` if the configuration is invalid (e.g., empty key).
+     * The `key` property (or the direct `StandardKey` if using shorthand) must be a value from the `Keys` object.
+     * @returns The ID of the registered shortcut if successful, or `undefined` if the configuration is invalid.
      * A warning is logged to the console if the configuration is invalid or if a shortcut with the same ID is overwritten.
      * @example
      * ```typescript
-     * import { Keys } from './keys';
+     * import { Keys } from "./keys";
+     * // For Ctrl+S
      * keyManager.addCombination({
      * id: "saveFile",
      * keys: { key: Keys.S, ctrlKey: true },
      * callback: () => console.log("File saved!"),
      * context: "editor"
      * });
+     * // For just the Escape key
+     * keyManager.addCombination({
+     * id: "closeModal",
+     * keys: Keys.Escape, // Shorthand syntax
+     * callback: () => console.log("Modal closed!")
+     * });
      * ```
      */
     public addCombination(config: KeyCombinationConfig): string | undefined {
         const { keys, callback, context, preventDefault = false, id } = config;
 
-        if (!keys || !keys.key || typeof keys.key !== 'string' || keys.key.trim() === '') {
-            console.warn(`${Hotkeys.LOG_PREFIX} Invalid 'keys.key' for combination shortcut "${id}". Key must be a non-empty value from Keys. Shortcut not added.`);
-            return undefined;
+        let configuredMainKey: StandardKey;
+        let ctrlKeyConfig: boolean | undefined;
+        let altKeyConfig: boolean | undefined;
+        let shiftKeyConfig: boolean | undefined;
+        let metaKeyConfig: boolean | undefined;
+        let keyDetailsForLog: string;
+
+        if (typeof keys === "string") {
+            // Shorthand: keys is StandardKey, implying no modifiers should be active
+            if (keys.trim() === "") {
+                console.warn(`${Hotkeys.LOG_PREFIX} Invalid "keys" (shorthand) for combination shortcut "${id}". Key string must not be empty. Shortcut not added.`);
+                return undefined;
+            }
+            configuredMainKey = keys;
+            ctrlKeyConfig = false; // Shorthand implies no modifiers
+            altKeyConfig = false;
+            shiftKeyConfig = false;
+            metaKeyConfig = false;
+            keyDetailsForLog = `key: "${keys}" (no modifiers implied)`;
+        } else {
+            // Object form
+            if (!keys || !keys.key || typeof keys.key !== "string" || keys.key.trim() === "") {
+                console.warn(`${Hotkeys.LOG_PREFIX} Invalid "keys.key" for combination shortcut "${id}". Key must be a non-empty value from Keys. Shortcut not added.`);
+                return undefined;
+            }
+            configuredMainKey = keys.key;
+            ctrlKeyConfig = keys.ctrlKey;
+            altKeyConfig = keys.altKey;
+            shiftKeyConfig = keys.shiftKey;
+            metaKeyConfig = keys.metaKey;
+            keyDetailsForLog = `key: "${keys.key}"` +
+                               (keys.ctrlKey !== undefined ? `, ctrlKey: ${keys.ctrlKey}` : "") +
+                               (keys.altKey !== undefined ? `, altKey: ${keys.altKey}` : "") +
+                               (keys.shiftKey !== undefined ? `, shiftKey: ${keys.shiftKey}` : "") +
+                               (keys.metaKey !== undefined ? `, metaKey: ${keys.metaKey}` : "");
         }
 
-        const configuredMainKey = keys.key;
-
         const shortcut$ = this.filterByContext(this.keydown$, context).pipe(
-            filter(event =>
-                (keys.ctrlKey === undefined || event.ctrlKey === keys.ctrlKey) &&
-                (keys.altKey === undefined || event.altKey === keys.altKey) &&
-                (keys.shiftKey === undefined || event.shiftKey === keys.shiftKey) &&
-                (keys.metaKey === undefined || event.metaKey === keys.metaKey)
-            ),
+            filter(event => {
+                // For shorthand (where modifiers are explicitly false), we want an exact match.
+                // For object form:
+                // - if modifier is true, event.modifier must be true.
+                // - if modifier is false, event.modifier must be false.
+                // - if modifier is undefined, we don't care about event.modifier.
+                const ctrlMatch = (ctrlKeyConfig === undefined) ? true : (event.ctrlKey === ctrlKeyConfig);
+                const altMatch = (altKeyConfig === undefined) ? true : (event.altKey === altKeyConfig);
+                const shiftMatch = (shiftKeyConfig === undefined) ? true : (event.shiftKey === shiftKeyConfig);
+                const metaMatch = (metaKeyConfig === undefined) ? true : (event.metaKey === metaKeyConfig);
+                return ctrlMatch && altMatch && shiftMatch && metaMatch;
+            }),
             filter(event => compareKey(event.key, configuredMainKey)),
             tap(event => {
                 if (this.debugMode) {
@@ -241,13 +312,7 @@ export class Hotkeys {
             }
         });
 
-        const keyDetails = `key: "${keys.key}"` +
-                           (keys.ctrlKey !== undefined ? `, ctrlKey: ${keys.ctrlKey}` : "") +
-                           (keys.altKey !== undefined ? `, altKey: ${keys.altKey}` : "") +
-                           (keys.shiftKey !== undefined ? `, shiftKey: ${keys.shiftKey}` : "") +
-                           (keys.metaKey !== undefined ? `, metaKey: ${keys.metaKey}` : "");
-
-        return this._registerShortcut(config, subscription, "Combination", `Keys: { ${keyDetails} }`);
+        return this._registerShortcut(config, subscription, ShortcutTypes.Combination, `Keys: { ${keyDetailsForLog} }`); // Use Enum
     }
 
     /**
@@ -261,7 +326,7 @@ export class Hotkeys {
      * A warning is logged to the console if the configuration is invalid or if a shortcut with the same ID is overwritten.
      * @example
      * ```typescript
-     * import { Keys } from './keys';
+     * import { Keys } from "./keys";
      * keyManager.addSequence({
      * id: "konamiCode",
      * sequence: [Keys.ArrowUp, Keys.ArrowUp, Keys.ArrowDown, Keys.ArrowDown, Keys.A, Keys.B],
@@ -277,7 +342,7 @@ export class Hotkeys {
             console.warn(`${Hotkeys.LOG_PREFIX} Sequence for shortcut "${id}" is empty or invalid. Shortcut not added.`);
             return undefined;
         }
-        if (sequence.some(key => typeof key !== 'string' || key.trim() === '')) {
+        if (sequence.some(key => typeof key !== "string" || key.trim() === "")) {
             console.warn(`${Hotkeys.LOG_PREFIX} Invalid key in sequence for shortcut "${id}". All keys must be non-empty strings from Keys. Shortcut not added.`);
             return undefined;
         }
@@ -288,26 +353,20 @@ export class Hotkeys {
         const baseKeydownStream$ = this.filterByContext(this.keydown$, context);
 
         if (sequenceTimeoutMs && sequenceTimeoutMs > 0) {
-            interface SequenceScanState {
-                matchedEvents: KeyboardEvent[];
-                lastEventTime: number;
-                emitState: 'emit' | 'ignore' | 'in-progress';
-            }
-
             shortcut$ = baseKeydownStream$.pipe(
                 scan<KeyboardEvent, SequenceScanState>(
                     (acc, event) => {
                         let { matchedEvents, lastEventTime } = acc;
                         const currentTime = performance.now();
 
-                        if (acc.emitState === 'emit') {
+                        if (acc.emitState === EmitStates.Emit) {
                             matchedEvents = [];
                             lastEventTime = 0;
                         }
 
                         if (matchedEvents.length > 0 && (currentTime - lastEventTime > sequenceTimeoutMs)) {
                             if (this.debugMode) {
-                                console.log(`${Hotkeys.LOG_PREFIX} Sequence "${id}" (timeout: ${sequenceTimeoutMs}ms) attempt timed out. Matched: ${matchedEvents.map(e=>e.key).join(',')}. Resetting.`);
+                                console.log(`${Hotkeys.LOG_PREFIX} Sequence "${id}" (timeout: ${sequenceTimeoutMs}ms) attempt timed out. Matched: ${matchedEvents.map(e=>e.key).join(",")}. Resetting.`);
                             }
                             matchedEvents = [];
                         }
@@ -315,37 +374,41 @@ export class Hotkeys {
                         const nextExpectedKeyIndex = matchedEvents.length;
 
                         if (nextExpectedKeyIndex >= sequenceLength) {
+                            // Sequence was already emitted or buffer is too long (should not happen if reset correctly)
+                            // Start new sequence if current key matches the first key of the sequence
                             if (sequenceLength > 0 && compareKey(event.key, configuredSequence[0])) {
-                                return { matchedEvents: [event], lastEventTime: currentTime, emitState: 'in-progress' };
+                                return { matchedEvents: [event], lastEventTime: currentTime, emitState: EmitStates.InProgress };
                             }
-                            return { matchedEvents: [], lastEventTime: 0, emitState: 'ignore' };
+                            return { matchedEvents: [], lastEventTime: 0, emitState: EmitStates.Ignore };
                         }
 
                         if (compareKey(event.key, configuredSequence[nextExpectedKeyIndex])) {
                             const newMatchedEvents = [...matchedEvents, event];
                             if (newMatchedEvents.length === sequenceLength) {
-                                if (this.debugMode) console.log(`${Hotkeys.LOG_PREFIX} Sequence "${id}" (timeout: ${sequenceTimeoutMs}ms) matched.`);
-                                return { matchedEvents: newMatchedEvents, lastEventTime: currentTime, emitState: 'emit' };
+                                if (this.debugMode && !acc.emitState) console.log(`${Hotkeys.LOG_PREFIX} Sequence "${id}" (timeout: ${sequenceTimeoutMs}ms) matched.`);
+                                return { matchedEvents: newMatchedEvents, lastEventTime: currentTime, emitState: EmitStates.Emit };
                             } else {
-                                return { matchedEvents: newMatchedEvents, lastEventTime: currentTime, emitState: 'in-progress' };
+                                return { matchedEvents: newMatchedEvents, lastEventTime: currentTime, emitState: EmitStates.InProgress };
                             }
                         } else {
+                             // If current key breaks sequence, check if it starts a new sequence
                             if (matchedEvents.length > 0 && this.debugMode) {
-                                 console.log(`${Hotkeys.LOG_PREFIX} Sequence "${id}" (timeout: ${sequenceTimeoutMs}ms) broken by key "${event.key}". Matched: ${matchedEvents.map(e=>e.key).join(',')}. Resetting.`);
+                                 console.log(`${Hotkeys.LOG_PREFIX} Sequence "${id}" (timeout: ${sequenceTimeoutMs}ms) broken by key "${event.key}". Matched: ${matchedEvents.map(e=>e.key).join(",")}. Resetting.`);
                             }
                             if (sequenceLength > 0 && compareKey(event.key, configuredSequence[0])) {
-                                return { matchedEvents: [event], lastEventTime: currentTime, emitState: 'in-progress' };
+                                return { matchedEvents: [event], lastEventTime: currentTime, emitState: EmitStates.InProgress };
                             } else {
-                                return { matchedEvents: [], lastEventTime: 0, emitState: 'ignore' };
+                                return { matchedEvents: [], lastEventTime: 0, emitState: EmitStates.Ignore };
                             }
                         }
                     },
-                    { matchedEvents: [], lastEventTime: 0, emitState: 'ignore' }
+                    { matchedEvents: [], lastEventTime: 0, emitState: EmitStates.Ignore }
                 ),
-                filter(state => state.emitState === 'emit'),
+                filter(state => state.emitState === EmitStates.Emit),
                 map(state => state.matchedEvents)
             );
         } else {
+            // No timeout logic: simple buffer-based matching
             shortcut$ = baseKeydownStream$.pipe(
                 bufferCount(sequenceLength, 1),
                 filter((events: KeyboardEvent[]) => {
@@ -374,14 +437,15 @@ export class Hotkeys {
 
         const subscription = finalShortcut$.subscribe((events: KeyboardEvent[]) => {
             try {
+                // Ensure callback receives the last event of the sequence, similar to combination.
                 if (events.length > 0) callback(events[events.length - 1]);
             } catch (e) {
                 console.error(`${Hotkeys.LOG_PREFIX} Error in user callback for sequence shortcut "${id}":`, e);
             }
         });
 
-        const logDetails = `Sequence: ${sequence.join(" -> ")}${sequenceTimeoutMs && sequenceTimeoutMs > 0 ? ` (timeout: ${sequenceTimeoutMs}ms)` : ''}`;
-        return this._registerShortcut(config, subscription, "Sequence", logDetails);
+        const logDetails = `Sequence: ${sequence.join(" -> ")}${sequenceTimeoutMs && sequenceTimeoutMs > 0 ? ` (timeout: ${sequenceTimeoutMs}ms)` : ""}`;
+        return this._registerShortcut(config, subscription, ShortcutTypes.Sequence, logDetails); // Use Enum
     }
 
     /**
@@ -410,14 +474,14 @@ export class Hotkeys {
      * and includes its `id`, `description` (if provided), `context` (if any),
      * and `type` ("combination" or "sequence").
      */
-    public getActiveShortcuts(): {id: string; description?: string; context?: string | null; type: "combination" | "sequence"}[] {
-        const shortcuts: Array<{id: string; description?: string; context?: string | null; type: "combination" | "sequence"}> = [];
+    public getActiveShortcuts(): {id: string; description?: string; context?: string | null; type: ShortcutTypes}[] {
+        const shortcuts: Array<{id: string; description?: string; context?: string | null; type: ShortcutTypes}> = [];
         for (const [id, activeShortcut] of this.activeShortcuts.entries()) {
             shortcuts.push({
                 id,
                 description: activeShortcut.config.description,
                 context: activeShortcut.config.context,
-                type: 'keys' in activeShortcut.config ? "combination" : "sequence"
+                type: ("sequence" in activeShortcut.config) ? ShortcutTypes.Sequence : ShortcutTypes.Combination // Use Enum values
             });
         }
         return shortcuts;

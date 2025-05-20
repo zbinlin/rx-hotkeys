@@ -288,10 +288,12 @@ export class Hotkeys {
 
         if (typeof keys === "string") {
             // Shorthand: keys is StandardKey, implying no modifiers should be active
-            if (keys.trim() === "") {
-                console.warn(`${Hotkeys.LOG_PREFIX} Invalid "keys" (shorthand) for combination shortcut "${id}". Key string must not be empty. Shortcut not added.`);
+            // Corrected validation: Check for actual empty string, not a string that trims to empty.
+            if ((keys as string) === "") { // StandardKey type should prevent this, but check for robustness.
+                console.warn(`${Hotkeys.LOG_PREFIX} Invalid "keys" (shorthand) for combination shortcut "${id}". Key must not be an empty string. Shortcut not added.`);
                 return undefined;
             }
+
             configuredMainKey = keys;
             ctrlKeyConfig = false; // Shorthand implies no modifiers
             altKeyConfig = false;
@@ -300,8 +302,9 @@ export class Hotkeys {
             keyDetailsForLog = `key: "${keys}" (no modifiers implied)`;
         } else {
             // Object form
-            if (!keys || !keys.key || typeof keys.key !== "string" || keys.key.trim() === "") {
-                console.warn(`${Hotkeys.LOG_PREFIX} Invalid "keys.key" for combination shortcut "${id}". Key must be a non-empty value from Keys. Shortcut not added.`);
+            // Corrected validation for keys.key
+            if (!keys || !keys.key || typeof keys.key !== "string" || (keys.key as string) === "") { // StandardKey type should prevent empty string for key.key
+                console.warn(`${Hotkeys.LOG_PREFIX} Invalid "keys.key" for combination shortcut "${id}". Key must be a non-empty string value from Keys. Shortcut not added.`);
                 return undefined;
             }
             configuredMainKey = keys.key;
@@ -380,8 +383,9 @@ export class Hotkeys {
             console.warn(`${Hotkeys.LOG_PREFIX} Sequence for shortcut "${id}" is empty or invalid. Shortcut not added.`);
             return undefined;
         }
-        if (sequence.some(key => typeof key !== "string" || key.trim() === "")) {
-            console.warn(`${Hotkeys.LOG_PREFIX} Invalid key in sequence for shortcut "${id}". All keys must be non-empty strings from Keys. Shortcut not added.`);
+        // Corrected validation: Check for actual empty string, not a string that trims to empty.
+        if (sequence.some(key => typeof key !== "string" || (key as string) === "")) { // StandardKey type should prevent empty strings.
+            console.warn(`${Hotkeys.LOG_PREFIX} Invalid key in sequence for shortcut "${id}". All keys must be non-empty string values from Keys. Shortcut not added.`);
             return undefined;
         }
 

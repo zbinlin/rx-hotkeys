@@ -407,6 +407,20 @@ describe("Hotkeys Library (Node.js Test Runner)", () => {
                 consoleLogMock.mock.restore();
                 keyManager.setDebugMode(false);
             });
+
+            it("should trigger callback for Keys.Space using shorthand", () => {
+                const config: KeyCombinationConfig = { id: "spaceShorthand", keys: Keys.Space, callback: mockCallback };
+                keyManager.addCombination(config);
+                dispatchKeyEvent(" "); // Event key for space is " "
+                assert.strictEqual(mockCallback.calledCount, 1, "Callback for Keys.Space (shorthand) not called");
+            });
+
+            it("should trigger callback for Keys.Space using object form", () => {
+                const config: KeyCombinationConfig = { id: "spaceObject", keys: { key: Keys.Space }, callback: mockCallback };
+                keyManager.addCombination(config);
+                dispatchKeyEvent(" ");
+                assert.strictEqual(mockCallback.calledCount, 1, "Callback for Keys.Space (object form) not called");
+            });
         });
     });
 
@@ -478,6 +492,31 @@ describe("Hotkeys Library (Node.js Test Runner)", () => {
             dispatchKeyEvent("s");
             assert.strictEqual(consoleErrorMock.mock.calls.length, 1);
             assert.ok(consoleErrorMock.mock.calls[0].arguments[0].includes(`Error in user callback for sequence shortcut "errorSeq"`));
+        });
+
+        it("should trigger callback for a sequence including Keys.Space", () => {
+            const config: KeySequenceConfig = {
+                id: "seqWithSpace",
+                sequence: [Keys.G, Keys.Space, Keys.I],
+                callback: mockCallback
+            };
+            keyManager.addSequence(config);
+            dispatchKeyEvent(Keys.G);
+            dispatchKeyEvent(Keys.Space); // Dispatch " " for space
+            dispatchKeyEvent(Keys.I);
+            assert.strictEqual(mockCallback.calledCount, 1, "Callback for sequence with Keys.Space not called");
+        });
+
+        it("should trigger callback for a sequence starting or ending with Keys.Space", () => {
+            const config: KeySequenceConfig = {
+                id: "seqStartSpace",
+                sequence: [Keys.Space, Keys.A],
+                callback: mockCallback
+            };
+            keyManager.addSequence(config);
+            dispatchKeyEvent(Keys.Space);
+            dispatchKeyEvent(Keys.A);
+            assert.strictEqual(mockCallback.calledCount, 1, "Callback for sequence starting with Keys.Space not called");
         });
 
         describe("Sequence Contextual Triggering", () => {

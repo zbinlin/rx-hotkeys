@@ -1,0 +1,39 @@
+{
+  "name": "rx-keyshuts",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "prepublishOnly": "npm run build",
+    "pretest": "npm run build",
+    "test": "node --test './dist/**/*.test.js'"
+  },
+  "exports": {
+    ".": {
+      "default": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "keywords": ["rxjs", "keyshuts", "hotkey", "key"],
+  "author": "Colin Cheng <zbinlin@outlook.com>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zbinlin/rx-keyshuts.git"
+  },
+  "files": [
+    "./dist/",
+    "README.md"
+  ],
+  "license": "MIT",
+  "description": "Advanced Keyboard Shortcut Management library using rxjs",
+  "packageManager": "npm@10.9.1+sha512.c89530d37c4baa38afd43e76a077a84b9aa63840b986426584fd5c5a54ab0a0b21bb1595c851042b733784b0b43706d36a494b4d8ae1a086a762cb8d3f95942a",
+  "devDependencies": {
+    "@types/jsdom": "^21.1.7",
+    "@types/node": "^22.15.19",
+    "jsdom": "^26.1.0",
+    "typescript": "^5.8.3"
+  },
+  "dependencies": {
+    "rxjs": "^7.8.2"
+  }
+}

@@ -149,22 +149,24 @@ export class Hotkeys {
      * will be active and can be triggered.
      * @param contextName - The name of the context (e.g., "modal", "editor", "global").
      * Pass `null` to activate shortcuts with no context or to deactivate context-specific shortcuts.
+     * @returns boolean
      */
-    public setContext(contextName: string | null): void {
-        if (this.activeContext$.getValue() === contextName) {
+    public setContext(contextName: string | null): boolean {
+        const currentContext = this.activeContext$.getValue();
+        if (currentContext === contextName) {
             if (this.debugMode) {
                 // Optional: Log that no change is happening, or simply do nothing.
                 console.log(`${Hotkeys.LOG_PREFIX} setContext called with the same context "${contextName}". No change made.`);
             }
-            return; // Context is the same, so no further action is needed.
+            return false; // Context is the same, so no further action is needed.
         }
 
         // If we reach here, the context is actually changing.
-        const oldContext = this.activeContext$.getValue(); // For more informative logging
         if (this.debugMode) {
-            console.log(`${Hotkeys.LOG_PREFIX} Context changed from "${oldContext}" to "${contextName}".`);
+            console.log(`${Hotkeys.LOG_PREFIX} Context changed from "${currentContext}" to "${contextName}".`);
         }
         this.activeContext$.next(contextName);
+        return true;
     }
 
     /**

@@ -184,6 +184,21 @@ describe("Hotkeys Library (Node.js Test Runner)", () => {
             consoleLogMock.mock.restore();
         });
 
+        it(`should log "no change" if context is set to the same value (debug mode on)`, () => {
+            keyManager.setContext("sameCtx"); // Set initial context
+            const consoleLogMock = mock.method(console, "log");
+            keyManager.setDebugMode(true);
+            consoleLogMock.mock.resetCalls(); // Clear previous logs
+
+            keyManager.setContext("sameCtx"); // Attempt to set the same context
+
+            const noChangeLogCall = consoleLogMock.mock.calls.find(call => call.arguments[0].includes(`setContext called with the same context "sameCtx". No change made.`));
+            assert.ok(noChangeLogCall, "No-change log not found or incorrect for same context.");
+            const changedLogCall = consoleLogMock.mock.calls.find(call => call.arguments[0].includes("Context changed from"));
+            assert.strictEqual(changedLogCall, undefined, "Context changed log should not appear for same context.");
+            consoleLogMock.mock.restore();
+        });
+
         it("should toggle debug mode and log its state", () => {
             const consoleLogMock = mock.method(console, "log");
             keyManager.setDebugMode(true);
@@ -191,10 +206,46 @@ describe("Hotkeys Library (Node.js Test Runner)", () => {
             consoleLogMock.mock.resetCalls();
 
             keyManager.setDebugMode(false);
-            console.log(">>>>>>>>>>>>>>>>>>>>>>>>>>>", consoleLogMock.mock.calls);
             assert.ok(consoleLogMock.mock.calls.some(call => call.arguments[0].includes("Debug mode disabled")));
 
             consoleLogMock.mock.restore();
+        });
+
+        describe("setContext return value", () => {
+            it("should return true when context is changed from null to a new value", () => {
+                assert.strictEqual(keyManager.getContext(), null, "Initial context should be null");
+                const result = keyManager.setContext("newContext");
+                assert.strictEqual(result, true, "setContext should return true for a change from null");
+                assert.strictEqual(keyManager.getContext(), "newContext");
+            });
+
+            it("should return true when context is changed from one value to another", () => {
+                keyManager.setContext("initialContext"); // Set a non-null initial context
+                const result = keyManager.setContext("changedContext");
+                assert.strictEqual(result, true, "setContext should return true for a value-to-value change");
+                assert.strictEqual(keyManager.getContext(), "changedContext");
+            });
+
+            it("should return false when context is set to the same value (non-null)", () => {
+                keyManager.setContext("sameContext");
+                const result = keyManager.setContext("sameContext");
+                assert.strictEqual(result, false, "setContext should return false for no change (non-null)");
+                assert.strictEqual(keyManager.getContext(), "sameContext");
+            });
+
+            it("should return true when context is changed from a value to null", () => {
+                keyManager.setContext("initialContext");
+                const result = keyManager.setContext(null);
+                assert.strictEqual(result, true, "setContext should return true for a change to null");
+                assert.strictEqual(keyManager.getContext(), null);
+            });
+
+            it("should return false when context is set to null and already null", () => {
+                keyManager.setContext(null); // Ensure context is null
+                const result = keyManager.setContext(null);
+                assert.strictEqual(result, false, "setContext should return false for no change (already null)");
+                assert.strictEqual(keyManager.getContext(), null);
+            });
         });
 
         describe("onContextChange$ observable", () => {
@@ -213,16 +264,16 @@ describe("Hotkeys Library (Node.js Test Runner)", () => {
                 const sub = keyManager.onContextChange$.subscribe(spy); // Subscribes, gets initial null
                 spy.mockClear(); // Clear initial emission
 
-                keyManager.setContext("newContext");
-                assert.strictEqual(spy.calledCount, 1);
+                assert.ok(keyManager.setContext("newContext"), "setContext should have returned true for change");
+                assert.strictEqual(spy.calledCount, 1, "onContextChange$ did not emit on first change");
                 assert.strictEqual(spy.lastArgs[0], "newContext");
 
-                keyManager.setContext("anotherContext");
-                assert.strictEqual(spy.calledCount, 2);
+                assert.ok(keyManager.setContext("anotherContext"), "setContext should have returned true for second change");
+                assert.strictEqual(spy.calledCount, 2, "onContextChange$ did not emit on second change");
                 assert.strictEqual(spy.lastArgs[0], "anotherContext");
 
-                keyManager.setContext(null);
-                assert.strictEqual(spy.calledCount, 3);
+                assert.ok(keyManager.setContext(null), "setContext should have returned true for change to null");
+                assert.strictEqual(spy.calledCount, 3, "onContextChange$ did not emit on change to null");
                 assert.strictEqual(spy.lastArgs[0], null);
                 sub.unsubscribe();
             });
@@ -233,7 +284,7 @@ describe("Hotkeys Library (Node.js Test Runner)", () => {
                 const sub = keyManager.onContextChange$.subscribe(spy); // Subscribes, gets "testContext"
                 spy.mockClear(); // Clear initial emission
 
-                keyManager.setContext("testContext"); // Set same context
+                assert.strictEqual(keyManager.setContext("testContext"), false, "setContext should have returned false for no change"); // Set same context
                 assert.strictEqual(spy.calledCount, 0, "Observable should not emit if context value is the same.");
                 sub.unsubscribe();
             });

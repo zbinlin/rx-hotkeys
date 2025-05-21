@@ -128,7 +128,7 @@ Registers a key sequence shortcut.
 * `config`: The KeySequenceConfig object.
 * Returns the shortcut ID if successful, undefined otherwise.
 
-`setContext(contextName: string | null): void`
+`setContext(contextName: string | null): boolean`
 
 Sets the active context. Only shortcuts matching this context or global shortcuts (no context) will trigger.
 

@@ -13,7 +13,7 @@ export enum ShortcutTypes {
 
 interface ShortcutConfigBase {
     id: string;
-    callback: (event?: KeyboardEvent) => void;
+    callback: (event: KeyboardEvent) => void;
     context?: string | null;
     preventDefault?: boolean;
     description?: string;

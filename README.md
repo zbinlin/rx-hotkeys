@@ -166,7 +166,7 @@ Cleans up all subscriptions and resources. Essential to call to prevent memory l
 
 * `id: string` (required): Unique identifier for the shortcut.
 * `keys: { key: StandardKey; ctrlKey?: boolean; altKey?: boolean; shiftKey?: boolean; metaKey?: boolean; } | StandardKey | Array<{ key: StandardKey; ctrlKey?: boolean; altKey?: boolean; shiftKey?: boolean; metaKey?: boolean; } | StandardKey>` (required): Defines the main key (from Keys) and optional modifier keys.
-* `callback: (event?: KeyboardEvent) => void` (required): Function to execute when the shortcut is triggered. The triggering `KeyboardEvent` is passed as an argument.
+* `callback: (event: KeyboardEvent) => void` (required): Function to execute when the shortcut is triggered. The triggering `KeyboardEvent` is passed as an argument.
 * `context?: string | null`: Specifies the context in which this shortcut is active. If `null` or `undefined`, it's a global shortcut.
 * `preventDefault?: boolean`: If true, `event.preventDefault()` will be called when the shortcut triggers. Defaults to `false`.
 * `description?: string`: An optional description for the shortcut (e.g., for help menus).
@@ -175,7 +175,7 @@ Cleans up all subscriptions and resources. Essential to call to prevent memory l
 
 * `id: string` (required): Unique identifier.
 * `sequence: StandardKey[]` (required): An array of `StandardKey` values (from `Keys`) representing the key sequence.
-* `callback: (event?: KeyboardEvent) => void` (required): Function to execute. The last `KeyboardEvent` of the sequence is passed.
+* `callback: (event: KeyboardEvent) => void` (required): Function to execute. The last `KeyboardEvent` of the sequence is passed.
 * `context?: string | null`: Context for activation.
 * `preventDefault?: boolean`: If true, `event.preventDefault()` is called for the last event in the sequence. Defaults to `false`.
 * `description?: string`: Optional description.

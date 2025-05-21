@@ -308,7 +308,7 @@ describe("Hotkeys Library (Node.js Test Runner)", () => {
             const result = keyManager.addCombination(config);
             assert.strictEqual(result, undefined, "Should return undefined for null key");
             assert.strictEqual(consoleWarnMock.mock.calls.length, 1);
-            assert.ok(consoleWarnMock.mock.calls[0].arguments[0].includes(`Invalid "key" property in shortcut "nullKey". Key must be a non-empty value from Keys.`));
+            assert.ok(consoleWarnMock.mock.calls[0].arguments[0].includes(`Invalid "key" property in shortcut "nullKey". Key must be a non-empty string value from Keys.`));
         });
 
 
@@ -526,6 +526,101 @@ describe("Hotkeys Library (Node.js Test Runner)", () => {
                 dispatchKeyEvent(" ");
                 assert.strictEqual(mockCallback.calledCount, 1, "Callback for Keys.Space (object form) not called");
             });
+        });
+    });
+
+    describe("Context Priority (Specific > Global)", () => {
+        let globalCallback: ReturnType<typeof createMockFn>;
+        let specificCallback: ReturnType<typeof createMockFn>;
+
+        beforeEach(() => {
+            globalCallback = createMockFn();
+            specificCallback = createMockFn();
+
+            // Global shortcut: Ctrl+G
+            keyManager.addCombination({
+                id: "globalCtrlG",
+                keys: { key: Keys.G, ctrlKey: true },
+                callback: globalCallback,
+                context: null // Explicitly global
+            });
+
+            // Specific context shortcut: Ctrl+G in "editor" context
+            keyManager.addCombination({
+                id: "editorCtrlG",
+                keys: { key: Keys.G, ctrlKey: true },
+                callback: specificCallback,
+                context: "editor"
+            });
+        });
+
+        it("should only trigger specific context callback when specific context is active", () => {
+            keyManager.setContext("editor");
+            dispatchKeyEvent(Keys.G, { ctrlKey: true });
+
+            assert.strictEqual(specificCallback.calledCount, 1, "Specific callback should have been called");
+            assert.strictEqual(globalCallback.calledCount, 0, "Global callback should NOT have been called");
+        });
+
+        it("should only trigger global callback when no specific context is active (or context doesn't match)", () => {
+            keyManager.setContext(null); // No specific context
+            dispatchKeyEvent(Keys.G, { ctrlKey: true });
+            assert.strictEqual(specificCallback.calledCount, 0, "Specific callback should NOT have been called");
+            assert.strictEqual(globalCallback.calledCount, 1, "Global callback should have been called");
+
+            globalCallback.mockClear();
+            keyManager.setContext("anotherContext"); // Different specific context
+            dispatchKeyEvent(Keys.G, { ctrlKey: true });
+            assert.strictEqual(specificCallback.calledCount, 0, `Specific callback should NOT have been called for "anotherContext"`);
+            assert.strictEqual(globalCallback.calledCount, 1, `Global callback should have been called when in "anotherContext"`);
+        });
+    });
+
+    describe("Sequence Context Priority (Specific > Global)", () => {
+        let globalSeqCallback: ReturnType<typeof createMockFn>;
+        let specificSeqCallback: ReturnType<typeof createMockFn>;
+        const testSequence: StandardKey[] = [Keys.G, Keys.I];
+
+        beforeEach(() => {
+            globalSeqCallback = createMockFn();
+            specificSeqCallback = createMockFn();
+
+            keyManager.addSequence({
+                id: "globalGI",
+                sequence: testSequence,
+                callback: globalSeqCallback,
+                context: null // Global
+            });
+
+            keyManager.addSequence({
+                id: "editorGI",
+                sequence: testSequence,
+                callback: specificSeqCallback,
+                context: "editor" // Specific
+            });
+        });
+
+        it("should only trigger specific context sequence callback when specific context is active", () => {
+            keyManager.setContext("editor");
+            testSequence.forEach(key => dispatchKeyEvent(key as string));
+
+            assert.strictEqual(specificSeqCallback.calledCount, 1, "Specific sequence callback should have been called");
+            assert.strictEqual(globalSeqCallback.calledCount, 0, "Global sequence callback should NOT have been called");
+        });
+
+        it("should only trigger global sequence callback when no specific context is active (or context doesn't match)", () => {
+            keyManager.setContext(null); // No specific context
+            testSequence.forEach(key => dispatchKeyEvent(key as string));
+            assert.strictEqual(specificSeqCallback.calledCount, 0, "Specific sequence callback should NOT have been called");
+            assert.strictEqual(globalSeqCallback.calledCount, 1, "Global sequence callback should have been called");
+
+            globalSeqCallback.mockClear();
+            specificSeqCallback.mockClear(); // Clear for next part of test
+
+            keyManager.setContext("anotherContext"); // Different specific context
+            testSequence.forEach(key => dispatchKeyEvent(key as string));
+            assert.strictEqual(specificSeqCallback.calledCount, 0, `Specific sequence callback should NOT have been called for "anotherContext"`);
+            assert.strictEqual(globalSeqCallback.calledCount, 1, `Global sequence callback should have been called when in "anotherContext"`);
         });
     });
 

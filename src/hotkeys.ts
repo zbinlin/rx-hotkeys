@@ -11,6 +11,18 @@ export enum ShortcutTypes {
     Sequence = "sequence"
 }
 
+enum EmitStates {
+    Emit,
+    Ignore,
+    InProgress,
+}
+
+interface SequenceScanState { // As per your uploaded file
+    matchedEvents: KeyboardEvent[];
+    lastEventTime: number;
+    emitState: EmitStates;
+}
+
 interface ShortcutConfigBase {
     id: string;
     callback: (event: KeyboardEvent) => void;
@@ -41,17 +53,22 @@ type KeyCombinationTrigger = {
     metaKey?: boolean;
 } | StandardKey;
 
+
 export interface KeyCombinationConfig extends ShortcutConfigBase {
     /**
-     * Defines the key or key combination.
-     * Can be an object specifying the main `key` (from `StandardKey`) and optional
+     * Defines the key or key combination(s) that trigger the shortcut.
+     * Can be a single trigger or an array of triggers.
+     * Each trigger can be an object specifying the main `key` (from `StandardKey`) and optional
      * modifiers (`ctrlKey`, `altKey`, `shiftKey`, `metaKey`).
      * Example: `{ key: Keys.S, ctrlKey: true }` for Ctrl+S.
      *
-     * Alternatively, for a simple key press without any modifiers, this can be
+     * Alternatively, for a simple key press without any modifiers, a trigger can be
      * a `StandardKey` directly.
      * Example: `Keys.Escape` for the Escape key. When using this shorthand,
      * it implies that no modifier keys (Ctrl, Alt, Shift, Meta) should be active.
+     *
+     * To define multiple triggers for the same action:
+     * Example: `keys: [Keys.Enter, { key: Keys.Space, ctrlKey: true }]`
      */
     keys: KeyCombinationTrigger | KeyCombinationTrigger[];
 }
@@ -77,7 +94,7 @@ export interface KeySequenceConfig extends ShortcutConfigBase {
 
 type ShortcutConfig = KeyCombinationConfig | KeySequenceConfig;
 
-export interface ActiveShortcut { // Made exportable for potential advanced use or testing
+export interface ActiveShortcut { // Made exportable as per previous diff
     id: string;
     config: ShortcutConfig;
     subscription: Subscription;
@@ -101,18 +118,6 @@ function compareKey(eventKey: string, configuredKey: StandardKey): boolean {
 
 
 // --- Hotkeys Library ---
-
-enum EmitStates {
-    Emit,
-    Ignore,
-    InProgress,
-}
-
-interface SequenceScanState {
-    matchedEvents: KeyboardEvent[];
-    lastEventTime: number;
-    emitState: EmitStates;
-}
 
 /**
  * Manages keyboard shortcuts for web applications.
@@ -155,7 +160,7 @@ export class Hotkeys {
      * will be active and can be triggered.
      * @param contextName - The name of the context (e.g., "modal", "editor", "global").
      * Pass `null` to activate shortcuts with no context or to deactivate context-specific shortcuts.
-     * @returns boolean
+     * @returns `true` if the context was changed, `false` if the new context was the same as the current one.
      */
     public setContext(contextName: string | null): boolean {
         const currentContext = this.activeContext$.getValue();
@@ -164,7 +169,7 @@ export class Hotkeys {
                 // Optional: Log that no change is happening, or simply do nothing.
                 console.log(`${Hotkeys.LOG_PREFIX} setContext called with the same context "${contextName}". No change made.`);
             }
-            return false; // Context is the same, so no further action is needed.
+            return false; // Context was NOT updated
         }
 
         // If we reach here, the context is actually changing.
@@ -172,7 +177,7 @@ export class Hotkeys {
             console.log(`${Hotkeys.LOG_PREFIX} Context changed from "${currentContext}" to "${contextName}".`);
         }
         this.activeContext$.next(contextName);
-        return true;
+        return true; // Context WAS updated
     }
 
     /**
@@ -189,16 +194,24 @@ export class Hotkeys {
      * @param enable - True to enable debug logs, false to disable.
      */
     public setDebugMode(enable: boolean): void {
-        if (this.debugMode === enable) { // Check if state is actually changing
-            return; // If no change, do nothing (no log)
+        if (this.debugMode === enable) {
+            return;
         }
-
-        this.debugMode = enable; // Set the new state
-        if (enable) { // Log based on the NEW state after a change
+        this.debugMode = enable;
+        if (enable) {
             console.log(`${Hotkeys.LOG_PREFIX} Debug mode enabled.`);
         } else {
             console.log(`${Hotkeys.LOG_PREFIX} Debug mode disabled.`);
         }
+    }
+
+    /**
+     * Checks if a shortcut with the given ID is currently registered and active.
+     * @param id - The unique ID of the shortcut to check.
+     * @returns True if a shortcut with the specified ID exists, false otherwise.
+     */
+    public hasShortcut(id: string): boolean {
+        return this.activeShortcuts.has(id);
     }
 
     /**
@@ -224,13 +237,71 @@ export class Hotkeys {
     }
 
     /**
-     * Checks if a shortcut with the given ID is currently registered and active.
-     * @param id - The unique ID of the shortcut to check.
-     * @returns True if a shortcut with the specified ID exists, false otherwise.
+     * Compares two sequences of StandardKey arrays to see if they are identical.
+     * @param seq1 - The first sequence array.
+     * @param seq2 - The second sequence array.
+     * @returns True if the sequences are identical, false otherwise.
      */
-    public hasShortcut(id: string): boolean {
-        return this.activeShortcuts.has(id);
+    private _areSequencesIdentical(seq1: StandardKey[], seq2: StandardKey[]): boolean {
+        if (seq1.length !== seq2.length) {
+            return false;
+        }
+        for (let i = 0; i < seq1.length; i++) {
+            if (seq1[i] !== seq2[i]) { // Direct comparison for canonical StandardKey values
+                return false;
+            }
+        }
+        return true;
     }
+
+    /**
+     * Checks if a given KeyCombinationConfig matches a given KeyboardEvent.
+     * This is used internally for priority checking.
+     * @param shortcutConfig The KeyCombinationConfig to check.
+     * @param event The KeyboardEvent to match against.
+     * @returns True if the shortcutConfig matches the event, false otherwise.
+     */
+    private _shortcutMatchesEvent(shortcutConfig: KeyCombinationConfig, event: KeyboardEvent): boolean {
+        const keyTriggers = Array.isArray(shortcutConfig.keys) ? shortcutConfig.keys : [shortcutConfig.keys];
+
+        for (const keyInput of keyTriggers) {
+            let configuredMainKey: StandardKey;
+            let ctrlKeyConfig: boolean | undefined;
+            let altKeyConfig: boolean | undefined;
+            let shiftKeyConfig: boolean | undefined;
+            let metaKeyConfig: boolean | undefined;
+
+            if (typeof keyInput === "string") {
+                if ((keyInput as string) === "") continue; // Invalid trigger, skip
+                configuredMainKey = keyInput;
+                ctrlKeyConfig = false;
+                altKeyConfig = false;
+                shiftKeyConfig = false;
+                metaKeyConfig = false;
+            } else {
+                if (!keyInput.key || (keyInput.key as string) === "") continue; // Invalid trigger, skip
+                configuredMainKey = keyInput.key;
+                ctrlKeyConfig = keyInput.ctrlKey;
+                altKeyConfig = keyInput.altKey;
+                shiftKeyConfig = keyInput.shiftKey;
+                metaKeyConfig = keyInput.metaKey;
+            }
+
+            const keyMatch = compareKey(event.key, configuredMainKey);
+            if (!keyMatch) continue;
+
+            const ctrlMatch = (ctrlKeyConfig === undefined) ? true : (event.ctrlKey === ctrlKeyConfig);
+            const altMatch = (altKeyConfig === undefined) ? true : (event.altKey === altKeyConfig);
+            const shiftMatch = (shiftKeyConfig === undefined) ? true : (event.shiftKey === shiftKeyConfig);
+            const metaMatch = (metaKeyConfig === undefined) ? true : (event.metaKey === metaKeyConfig);
+
+            if (ctrlMatch && altMatch && shiftMatch && metaMatch) {
+                return true;
+            }
+        }
+        return false;
+    }
+
 
     private filterByContext(source$: Observable<KeyboardEvent>, context?: string | null): Observable<KeyboardEvent> {
         return source$.pipe(
@@ -243,7 +314,7 @@ export class Hotkeys {
     private _registerShortcut(
         config: ShortcutConfig,
         subscription: Subscription,
-        type: ShortcutTypes, // Changed to use Enum
+        type: ShortcutTypes,
         detailsForLog: string
     ): string {
         const existingShortcut = this.activeShortcuts.get(config.id);
@@ -278,10 +349,17 @@ export class Hotkeys {
                 console.warn(`${Hotkeys.LOG_PREFIX} Invalid key (shorthand) in shortcut "${shortcutId}". Key string must not be empty.`);
                 return null;
             }
-            return { configuredMainKey: keyInput, ctrlKeyConfig: false, altKeyConfig: false, shiftKeyConfig: false, metaKeyConfig: false, logDetails: `key: "${keyInput}" (no mods)` };
+            return {
+                configuredMainKey: keyInput,
+                ctrlKeyConfig: false,
+                altKeyConfig: false,
+                shiftKeyConfig: false,
+                metaKeyConfig: false,
+                logDetails: `key: "${keyInput}" (no mods)`,
+            };
         } else {
-            if (!keyInput.key || (keyInput.key as string) === "") {
-                console.warn(`${Hotkeys.LOG_PREFIX} Invalid "key" property in shortcut "${shortcutId}". Key must be a non-empty value from Keys.`);
+            if (!keyInput.key || typeof keyInput.key !== "string" || (keyInput.key as string) === "") {
+                console.warn(`${Hotkeys.LOG_PREFIX} Invalid "key" property in shortcut "${shortcutId}". Key must be a non-empty string value from Keys.`);
                 return null;
             }
             const logDetails = `key: "${keyInput.key}"` +
@@ -289,7 +367,14 @@ export class Hotkeys {
                 (keyInput.altKey !== undefined ? `, alt: ${keyInput.altKey}` : "") +
                 (keyInput.shiftKey !== undefined ? `, shift: ${keyInput.shiftKey}` : "") +
                 (keyInput.metaKey !== undefined ? `, meta: ${keyInput.metaKey}` : "");
-            return { configuredMainKey: keyInput.key, ctrlKeyConfig: keyInput.ctrlKey, altKeyConfig: keyInput.altKey, shiftKeyConfig: keyInput.shiftKey, metaKeyConfig: keyInput.metaKey, logDetails };
+            return {
+                configuredMainKey: keyInput.key,
+                ctrlKeyConfig: keyInput.ctrlKey,
+                altKeyConfig: keyInput.altKey,
+                shiftKeyConfig: keyInput.shiftKey,
+                metaKeyConfig: keyInput.metaKey,
+                logDetails,
+            };
         }
     }
 
@@ -311,10 +396,10 @@ export class Hotkeys {
      * callback: () => console.log("File saved!"),
      * context: "editor"
      * });
-     * // For just the Escape key
+     * // For just the Escape key, or Ctrl+Space
      * keyManager.addCombination({
      * id: "closeModal",
-     * keys: Keys.Escape, // Shorthand syntax
+     * keys: [Keys.Escape, {key: Keys.Space, ctrlKey: true}],
      * callback: () => console.log("Modal closed!")
      * });
      * ```
@@ -353,7 +438,30 @@ export class Hotkeys {
                     const metaMatch = (metaKeyConfig === undefined) ? true : (event.metaKey === metaKeyConfig);
                     return ctrlMatch && altMatch && shiftMatch && metaMatch;
                 }),
-                filter(event => compareKey(event.key, configuredMainKey))
+                filter(event => compareKey(event.key, configuredMainKey)),
+                // New filter for priority: Specific context > Global context
+                filter(event => {
+                    if (config.context != null) { // This shortcut is NOT global
+                        return true;
+                    }
+                    // This shortcut IS global. Check for specific overrides.
+                    const currentSpecificContext = this.activeContext$.getValue();
+                    if (currentSpecificContext == null) { // No specific context active
+                        return true;
+                    }
+                    for (const [, otherAS] of this.activeShortcuts) {
+                        if (otherAS.config.id !== config.id &&
+                            'keys' in otherAS.config &&
+                            otherAS.config.context === currentSpecificContext &&
+                            this._shortcutMatchesEvent(otherAS.config, event)) {
+                            if (this.debugMode) {
+                                console.log(`${Hotkeys.LOG_PREFIX} Global shortcut "${config.id}" (key: "${event.key}") suppressed by specific context shortcut "${otherAS.config.id}".`);
+                            }
+                            return false; // Suppress global
+                        }
+                    }
+                    return true; // Global can proceed
+                })
             );
             observables.push(stream);
         }
@@ -366,6 +474,7 @@ export class Hotkeys {
 
         finalShortcut$ = merge(...observables);
         overallLogDetails = Array.isArray(keys) ? `Triggers: [ ${logParts.join(", ")} ]` : logParts[0];
+
 
         const subscription = finalShortcut$.pipe(
             tap(event => {
@@ -461,7 +570,7 @@ export class Hotkeys {
                         if (compareKey(event.key, configuredSequence[nextExpectedKeyIndex])) {
                             const newMatchedEvents = [...matchedEvents, event];
                             if (newMatchedEvents.length === sequenceLength) {
-                                if (this.debugMode && !acc.emitState) console.log(`${Hotkeys.LOG_PREFIX} Sequence "${id}" (timeout: ${sequenceTimeoutMs}ms) matched.`);
+                                if (this.debugMode && acc.emitState !== EmitStates.Emit) console.log(`${Hotkeys.LOG_PREFIX} Sequence "${id}" (timeout: ${sequenceTimeoutMs}ms) matched.`);
                                 return { matchedEvents: newMatchedEvents, lastEventTime: currentTime, emitState: EmitStates.Emit };
                             } else {
                                 return { matchedEvents: newMatchedEvents, lastEventTime: currentTime, emitState: EmitStates.InProgress };
@@ -494,7 +603,29 @@ export class Hotkeys {
             );
         }
 
-        const finalShortcut$ = shortcut$.pipe(
+        const finalShortcutWithPriority$ = shortcut$.pipe(
+            filter((completedEvents: KeyboardEvent[]) => {
+                if (config.context != null) { // This sequence is NOT global
+                    return true;
+                }
+                // This sequence IS global. Check for specific overrides.
+                const currentSpecificContext = this.activeContext$.getValue();
+                if (currentSpecificContext == null) { // No specific context active
+                    return true;
+                }
+                for (const [, otherAS] of this.activeShortcuts) {
+                    if (otherAS.config.id !== config.id &&
+                        "sequence" in otherAS.config &&
+                        otherAS.config.context === currentSpecificContext &&
+                        this._areSequencesIdentical(config.sequence, otherAS.config.sequence)) {
+                        if (this.debugMode) {
+                            console.log(`${Hotkeys.LOG_PREFIX} Global sequence shortcut "${config.id}" suppressed by identical specific-context shortcut "${otherAS.config.id}".`);
+                        }
+                        return false; // Suppress global
+                    }
+                }
+                return true; // Global sequence can proceed
+            }),
             tap((events: KeyboardEvent[]) => {
                 if (this.debugMode) {
                     const timeoutInfo = (sequenceTimeoutMs && sequenceTimeoutMs > 0) ? ` (with timeout logic)` : ` (no timeout logic)`;
@@ -511,7 +642,7 @@ export class Hotkeys {
             })
         );
 
-        const subscription = finalShortcut$.subscribe((events: KeyboardEvent[]) => {
+        const subscription = finalShortcutWithPriority$.subscribe((events: KeyboardEvent[]) => {
             try {
                 // Ensure callback receives the last event of the sequence, similar to combination.
                 if (events.length > 0) callback(events[events.length - 1]);
@@ -521,7 +652,7 @@ export class Hotkeys {
         });
 
         const logDetails = `Sequence: ${sequence.join(" -> ")}${sequenceTimeoutMs && sequenceTimeoutMs > 0 ? ` (timeout: ${sequenceTimeoutMs}ms)` : ""}`;
-        return this._registerShortcut(config, subscription, ShortcutTypes.Sequence, logDetails); // Use Enum
+        return this._registerShortcut(config, subscription, ShortcutTypes.Sequence, logDetails);
     }
 
     /**
@@ -548,7 +679,7 @@ export class Hotkeys {
      * This can be useful for displaying available shortcuts to the user or for debugging.
      * @returns An array of objects, where each object represents an active shortcut
      * and includes its `id`, `description` (if provided), `context` (if any),
-     * and `type` ("combination" or "sequence").
+     * and `type` (from `ShortcutTypes` enum).
      */
     public getActiveShortcuts(): {id: string; description?: string; context?: string | null; type: ShortcutTypes}[] {
         const shortcuts: Array<{id: string; description?: string; context?: string | null; type: ShortcutTypes}> = [];
@@ -557,7 +688,7 @@ export class Hotkeys {
                 id,
                 description: activeShortcut.config.description,
                 context: activeShortcut.config.context,
-                type: ("sequence" in activeShortcut.config) ? ShortcutTypes.Sequence : ShortcutTypes.Combination // Use Enum values
+                type: ("sequence" in activeShortcut.config) ? ShortcutTypes.Sequence : ShortcutTypes.Combination
             });
         }
         return shortcuts;
@@ -573,7 +704,7 @@ export class Hotkeys {
         if (this.debugMode) console.log(`${Hotkeys.LOG_PREFIX} Destroying library instance and unsubscribing all shortcuts.`);
         this.activeShortcuts.forEach(shortcut => shortcut.subscription.unsubscribe());
         this.activeShortcuts.clear();
-        this.activeContext$.complete(); // Complete the BehaviorSubject to release its resources
+        this.activeContext$.complete();
         if (this.debugMode) console.log(`${Hotkeys.LOG_PREFIX} Library destroyed.`);
     }
 }

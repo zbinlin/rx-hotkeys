@@ -1,4 +1,4 @@
-import { describe, it, before, beforeEach, afterEach, mock } from "node:test";
+import { describe, it, before, beforeEach, afterEach, mock, Mock } from "node:test";
 import assert from "node:assert";
 import { Hotkeys, type KeyCombinationConfig, type KeySequenceConfig, ShortcutTypes } from "./hotkeys.js";
 import { Keys, type StandardKey } from "./keys.js";
@@ -47,8 +47,8 @@ before(() => {
 describe("Hotkeys Library (Node.js Test Runner)", () => {
     let keyManager: Hotkeys;
     let mockCallback: ReturnType<typeof createMockFn>;
-    let consoleWarnMock: any;
-    let consoleErrorMock: any;
+    let consoleWarnMock: Mock<Console["warn"]>;
+    let consoleErrorMock: Mock<Console["error"]>;
     let performanceNowMock: any; // To mock global.performance.now specifically for sequence tests
 
     beforeEach(() => {
@@ -292,15 +292,15 @@ describe("Hotkeys Library (Node.js Test Runner)", () => {
     });
 
     describe("addCombination", () => {
-        it("should trigger callback for a simple key combination (e.g., 'A')", () => {
+        it(`should trigger callback for a simple key combination (e.g., "A")`, () => {
             const config: KeyCombinationConfig = { id: "simpleA", keys: { key: Keys.A }, callback: mockCallback };
             const result = keyManager.addCombination(config);
             assert.strictEqual(result, "simpleA");
             dispatchKeyEvent("a");
-            assert.strictEqual(mockCallback.calledCount, 1, "Callback for 'a' not called");
+            assert.strictEqual(mockCallback.calledCount, 1, `Callback for "a" not called`);
             mockCallback.mockClear();
             dispatchKeyEvent("A");
-            assert.strictEqual(mockCallback.calledCount, 1, "Callback for 'A' not called");
+            assert.strictEqual(mockCallback.calledCount, 1, `Callback for "A" not called`);
         });
 
         it("should return undefined and warn if keys.key is null or undefined (runtime check in object form)", () => {
@@ -308,7 +308,7 @@ describe("Hotkeys Library (Node.js Test Runner)", () => {
             const result = keyManager.addCombination(config);
             assert.strictEqual(result, undefined, "Should return undefined for null key");
             assert.strictEqual(consoleWarnMock.mock.calls.length, 1);
-            assert.ok(consoleWarnMock.mock.calls[0].arguments[0].includes(`Invalid "keys.key" for combination shortcut "nullKey"`));
+            assert.ok(consoleWarnMock.mock.calls[0].arguments[0].includes(`Invalid "key" property in shortcut "nullKey". Key must be a non-empty value from Keys.`));
         });
 
 
@@ -383,31 +383,85 @@ describe("Hotkeys Library (Node.js Test Runner)", () => {
             assert.strictEqual(workingCallback.calledCount, 1);
         });
 
+        it("should trigger callback if any of multiple key combinations are pressed", () => {
+            const config: KeyCombinationConfig = {
+                id: "multiCombo",
+                keys: [
+                    { key: Keys.A, ctrlKey: true }, // Ctrl+A
+                    Keys.Escape,                   // Escape
+                    { key: Keys.B, shiftKey: true, altKey: true} // Shift+Alt+B
+                ],
+                callback: mockCallback
+            };
+            keyManager.addCombination(config);
+
+            dispatchKeyEvent("A", { ctrlKey: true });
+            assert.strictEqual(mockCallback.calledCount, 1, "Ctrl+A did not trigger");
+
+            dispatchKeyEvent("Escape");
+            assert.strictEqual(mockCallback.calledCount, 2, "Escape did not trigger");
+
+            dispatchKeyEvent("B", { shiftKey: true, altKey: true });
+            assert.strictEqual(mockCallback.calledCount, 3, "Shift+Alt+B did not trigger");
+
+            dispatchKeyEvent("C"); // Should not trigger
+            assert.strictEqual(mockCallback.calledCount, 3, "Unrelated key C triggered");
+        });
+
+        it(`should return undefined and warn if "keys" array is empty`, () => {
+            const config: KeyCombinationConfig = { id: "emptyKeysArray", keys: [], callback: mockCallback };
+            const result = keyManager.addCombination(config);
+            assert.strictEqual(result, undefined);
+            assert.ok(consoleWarnMock.mock.calls.some(call => call.arguments[0].includes(`"keys" array for combination shortcut "emptyKeysArray" is empty`)));
+        });
+
+        it(`should return undefined and warn if a key in "keys" array is invalid (shorthand)`, () => {
+            const config: KeyCombinationConfig = { id: "invalidInArrayShorthand", keys: [Keys.A, "" as StandardKey], callback: mockCallback };
+            const result = keyManager.addCombination(config);
+            assert.strictEqual(result, undefined);
+            assert.ok(consoleWarnMock.mock.calls.some(call => call.arguments[0].includes(`Invalid key (shorthand) in shortcut "invalidInArrayShorthand"`)));
+        });
+
+        it(`should return undefined and warn if a key in "keys" array is invalid (object)`, () => {
+            const config: KeyCombinationConfig = { id: "invalidInArrayObject", keys: [Keys.A, { key: "" as StandardKey }], callback: mockCallback };
+            const result = keyManager.addCombination(config);
+            assert.strictEqual(result, undefined);
+            assert.ok(consoleWarnMock.mock.calls.some(call => call.arguments[0].includes(`Invalid "key" property in shortcut "invalidInArrayObject"`)));
+        });
+
+        it("should correctly log multiple key triggers in debug mode", () => {
+            const consoleLogMock = mock.method(console, "log");
+            keyManager.setDebugMode(true);
+            keyManager.addCombination({ id: "multiLog", keys: [Keys.F1, { key: Keys.F2, ctrlKey: true }], callback: mockCallback });
+            assert.ok(consoleLogMock.mock.calls.some(call => call.arguments[0].includes(`Triggers: [ { key: "F1" (no mods) }, { key: "F2", ctrl: true } ]`)), "Multi-trigger log format incorrect");
+            consoleLogMock.mock.restore();
+        });
+
         describe("addCombination - Shorthand Syntax", () => {
             it("should trigger callback for a simple key using shorthand (e.g., Keys.X)", () => {
                 const config: KeyCombinationConfig = { id: "shorthandX", keys: Keys.X, callback: mockCallback };
                 keyManager.addCombination(config);
                 dispatchKeyEvent(Keys.X.toLowerCase());
-                assert.strictEqual(mockCallback.calledCount, 1, "Callback for 'x' (shorthand) not called");
+                assert.strictEqual(mockCallback.calledCount, 1, `Callback for "x" (shorthand) not called`);
                 mockCallback.mockClear();
                 dispatchKeyEvent(Keys.X);
-                assert.strictEqual(mockCallback.calledCount, 1, "Callback for 'X' (shorthand) not called");
+                assert.strictEqual(mockCallback.calledCount, 1, `Callback for "X" (shorthand) not called`);
             });
 
             it("should NOT trigger callback for shorthand if modifier is pressed", () => {
                 const config: KeyCombinationConfig = { id: "shorthandY", keys: Keys.Y, callback: mockCallback };
                 keyManager.addCombination(config);
                 dispatchKeyEvent(Keys.Y, { ctrlKey: true });
-                assert.strictEqual(mockCallback.calledCount, 0, "Callback for 'y' (shorthand) should not be called with Ctrl");
+                assert.strictEqual(mockCallback.calledCount, 0, `Callback for "y" (shorthand) should not be called with Ctrl`);
                  mockCallback.mockClear();
                 dispatchKeyEvent(Keys.Y, { altKey: true });
-                assert.strictEqual(mockCallback.calledCount, 0, "Callback for 'y' (shorthand) should not be called with Alt");
+                assert.strictEqual(mockCallback.calledCount, 0, `Callback for "y" (shorthand) should not be called with Alt`);
                  mockCallback.mockClear();
                 dispatchKeyEvent(Keys.Y, { shiftKey: true });
-                assert.strictEqual(mockCallback.calledCount, 0, "Callback for 'y' (shorthand) should not be called with Shift");
+                assert.strictEqual(mockCallback.calledCount, 0, `Callback for "y" (shorthand) should not be called with Shift`);
                  mockCallback.mockClear();
                 dispatchKeyEvent(Keys.Y, { metaKey: true });
-                assert.strictEqual(mockCallback.calledCount, 0, "Callback for 'y' (shorthand) should not be called with Meta");
+                assert.strictEqual(mockCallback.calledCount, 0, `Callback for "y" (shorthand) should not be called with Meta`);
             });
 
             it("should trigger callback for shorthand if ONLY the key is pressed (no modifiers)", () => {
@@ -443,7 +497,7 @@ describe("Hotkeys Library (Node.js Test Runner)", () => {
                 const result = keyManager.addCombination(config);
                 assert.strictEqual(result, undefined);
                 assert.strictEqual(consoleWarnMock.mock.calls.length, 1);
-                assert.ok(consoleWarnMock.mock.calls[0].arguments[0].includes(`Invalid "keys" (shorthand) for combination shortcut "emptyShorthand"`));
+                assert.ok(consoleWarnMock.mock.calls[0].arguments[0].includes(`Invalid key (shorthand) in shortcut "emptyShorthand". Key string must not be empty.`));
             });
 
             it("should correctly log shorthand key details in debug mode", () => {
@@ -452,9 +506,9 @@ describe("Hotkeys Library (Node.js Test Runner)", () => {
                 const config: KeyCombinationConfig = { id: "debugShorthand", keys: Keys.D, callback: mockCallback };
                 keyManager.addCombination(config);
 
-                const logMessage = consoleLogMock.mock.calls.find(call => call.arguments[0].includes(`combination shortcut "debugShorthand" added`));
+                const logMessage = consoleLogMock.mock.calls.find(call => call.arguments[0].includes(`combination shortcut "debugShorthand" added.`));
                 assert.ok(logMessage, "Debug log for adding shortcut not found");
-                assert.ok(logMessage.arguments[0].includes(`Keys: { key: "D" (no modifiers implied) }`), `Log message content mismatch: ${logMessage.arguments[0]}`);
+                assert.ok(logMessage.arguments[0].includes(`{ key: "D" (no mods) }`), `Log message content mismatch: ${logMessage.arguments[0]}`);
                 consoleLogMock.mock.restore();
                 keyManager.setDebugMode(false);
             });
@@ -507,7 +561,7 @@ describe("Hotkeys Library (Node.js Test Runner)", () => {
             assert.ok(consoleWarnMock.mock.calls[0].arguments[0].includes(`Sequence for shortcut "emptySeq" is empty`));
         });
 
-        it("should return undefined and warn if sequence contains an invalid key (runtime check with 'as any')", () => {
+        it(`should return undefined and warn if sequence contains an invalid key (runtime check with "as any")`, () => {
             // This test checks runtime robustness if `any` is used to bypass StandardKey[]
             const config: KeySequenceConfig = { id: "invalidKeyInSeq", sequence: [Keys.A, "" as any, Keys.C], callback: mockCallback };
             const result = keyManager.addSequence(config);

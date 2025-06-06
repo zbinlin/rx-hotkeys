@@ -29,6 +29,15 @@ interface ShortcutConfigBase {
     context?: string | null;
     preventDefault?: boolean;
     description?: string;
+    /**
+     * **Only applicable if the shortcut has no top-level `context` defined.**
+     * If `true`, this shortcut is **strictly global** and will only fire when the active
+     * hotkey context is `null`.
+     * If `false` or `undefined` (the default), the shortcut can fire in *any* context,
+     * but will be suppressed by an identical shortcut that belongs to the active context.
+     * @default false
+     */
+    strict?: boolean;
 }
 
 /**
@@ -303,11 +312,21 @@ export class Hotkeys {
     }
 
 
-    private filterByContext(source$: Observable<KeyboardEvent>, context?: string | null): Observable<KeyboardEvent> {
+    private filterByContext(source$: Observable<KeyboardEvent>, context: string | null | undefined, strict: boolean): Observable<KeyboardEvent> {
         return source$.pipe(
             withLatestFrom(this.activeContext$),
-            filter(([/* event */, activeCtx]) => context == null || context === activeCtx),
-            map(([event, /* _activeCtx */]) => event)
+            filter(([/* event */, activeCtx]) => {
+                if (context == null) {
+                    if (strict) {
+                        return activeCtx == null;
+                    } else {
+                        return true;
+                    }
+                } else {
+                    return context === activeCtx;
+                }
+            }),
+            map(([event, /* _activeCtx */]) => event),
         );
     }
 
@@ -405,10 +424,11 @@ export class Hotkeys {
      * ```
      */
     public addCombination(config: KeyCombinationConfig): string | undefined {
-        const { keys, callback, context, preventDefault = false, id } = config;
+        const { keys, callback, context, preventDefault = false, id, strict = false } = config;
 
-        let finalShortcut$: Observable<KeyboardEvent>;
-        let overallLogDetails = "";
+        if (context != null && strict) {
+            console.warn(`${Hotkeys.LOG_PREFIX} Shortcut "${id}" has both a context(${context}) and the 'strict' flag. The 'strict' flag will be ignored.`);
+        }
 
         const keyTriggers = Array.isArray(keys) ? keys : [keys];
 
@@ -430,7 +450,7 @@ export class Hotkeys {
             const { configuredMainKey, ctrlKeyConfig, altKeyConfig, shiftKeyConfig, metaKeyConfig, logDetails } = parsedTrigger;
             logParts.push(`{ ${logDetails} }`);
 
-            const stream = this.filterByContext(this.keydown$, context).pipe(
+            const stream = this.filterByContext(this.keydown$, context, strict).pipe(
                 filter(event => {
                     const ctrlMatch = (ctrlKeyConfig === undefined) ? true : (event.ctrlKey === ctrlKeyConfig);
                     const altMatch = (altKeyConfig === undefined) ? true : (event.altKey === altKeyConfig);
@@ -441,7 +461,7 @@ export class Hotkeys {
                 filter(event => compareKey(event.key, configuredMainKey)),
                 // New filter for priority: Specific context > Global context
                 filter(event => {
-                    if (config.context != null) { // This shortcut is NOT global
+                    if (context != null || strict) { // This shortcut is NOT global or strict
                         return true;
                     }
                     // This shortcut IS global. Check for specific overrides.
@@ -449,13 +469,14 @@ export class Hotkeys {
                     if (currentSpecificContext == null) { // No specific context active
                         return true;
                     }
+
                     for (const [, otherAS] of this.activeShortcuts) {
-                        if (otherAS.config.id !== config.id &&
+                        if (otherAS.config.id !== id &&
                             'keys' in otherAS.config &&
                             otherAS.config.context === currentSpecificContext &&
                             this._shortcutMatchesEvent(otherAS.config, event)) {
                             if (this.debugMode) {
-                                console.log(`${Hotkeys.LOG_PREFIX} Global shortcut "${config.id}" (key: "${event.key}") suppressed by specific context shortcut "${otherAS.config.id}".`);
+                                console.log(`${Hotkeys.LOG_PREFIX} Global shortcut "${id}" (key: "${event.key}") suppressed by specific context shortcut "${otherAS.config.id}".`);
                             }
                             return false; // Suppress global
                         }
@@ -472,8 +493,8 @@ export class Hotkeys {
             return undefined;
         }
 
-        finalShortcut$ = merge(...observables);
-        overallLogDetails = Array.isArray(keys) ? `Triggers: [ ${logParts.join(", ")} ]` : logParts[0];
+        const finalShortcut$ = merge(...observables);
+        const overallLogDetails = Array.isArray(keys) ? `Triggers: [ ${logParts.join(", ")} ]` : logParts[0];
 
 
         const subscription = finalShortcut$.pipe(
@@ -520,7 +541,7 @@ export class Hotkeys {
      * ```
      */
     public addSequence(config: KeySequenceConfig): string | undefined {
-        const { sequence, callback, context, preventDefault = false, id, sequenceTimeoutMs } = config;
+        const { sequence, callback, context, preventDefault = false, id, sequenceTimeoutMs, strict = false } = config;
 
         if (!Array.isArray(sequence) || sequence.length === 0) {
             console.warn(`${Hotkeys.LOG_PREFIX} Sequence for shortcut "${id}" is empty or invalid. Shortcut not added.`);
@@ -531,11 +552,14 @@ export class Hotkeys {
             console.warn(`${Hotkeys.LOG_PREFIX} Invalid key in sequence for shortcut "${id}". All keys must be non-empty string values from Keys. Shortcut not added.`);
             return undefined;
         }
+        if (context && strict) {
+             console.warn(`${Hotkeys.LOG_PREFIX} Shortcut "${id}" has both a context and the 'strict' flag. The 'strict' flag will be ignored.`);
+        }
 
         const configuredSequence = sequence;
         const sequenceLength = configuredSequence.length;
         let shortcut$: Observable<KeyboardEvent[]>;
-        const baseKeydownStream$ = this.filterByContext(this.keydown$, context);
+        const baseKeydownStream$ = this.filterByContext(this.keydown$, context, strict);
 
         if (sequenceTimeoutMs && sequenceTimeoutMs > 0) {
             shortcut$ = baseKeydownStream$.pipe(
@@ -605,7 +629,7 @@ export class Hotkeys {
 
         const finalShortcutWithPriority$ = shortcut$.pipe(
             filter((completedEvents: KeyboardEvent[]) => {
-                if (config.context != null) { // This sequence is NOT global
+                if (context != null || strict) { // This sequence is NOT global or strict
                     return true;
                 }
                 // This sequence IS global. Check for specific overrides.
@@ -614,12 +638,12 @@ export class Hotkeys {
                     return true;
                 }
                 for (const [, otherAS] of this.activeShortcuts) {
-                    if (otherAS.config.id !== config.id &&
+                    if (otherAS.config.id !== id &&
                         "sequence" in otherAS.config &&
                         otherAS.config.context === currentSpecificContext &&
-                        this._areSequencesIdentical(config.sequence, otherAS.config.sequence)) {
+                        this._areSequencesIdentical(sequence, otherAS.config.sequence)) {
                         if (this.debugMode) {
-                            console.log(`${Hotkeys.LOG_PREFIX} Global sequence shortcut "${config.id}" suppressed by identical specific-context shortcut "${otherAS.config.id}".`);
+                            console.log(`${Hotkeys.LOG_PREFIX} Global sequence shortcut "${id}" suppressed by identical specific-context shortcut "${otherAS.config.id}".`);
                         }
                         return false; // Suppress global
                     }

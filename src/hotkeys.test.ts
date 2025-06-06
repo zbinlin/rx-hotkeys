@@ -624,6 +624,126 @@ describe("Hotkeys Library (Node.js Test Runner)", () => {
         });
     });
 
+    describe("Global Shortcut Context Behavior (`strict` flag)", () => {
+        let strictGlobalCallback: ReturnType<typeof createMockFn>;
+        let defaultGlobalCallback: ReturnType<typeof createMockFn>;
+        let specificContextCallback: ReturnType<typeof createMockFn>;
+
+        beforeEach(() => {
+            strictGlobalCallback = createMockFn();
+            defaultGlobalCallback = createMockFn();
+            specificContextCallback = createMockFn();
+
+            // 1. A specific shortcut for the "editor" context
+            keyManager.addCombination({
+                id: "editorSave",
+                keys: { key: Keys.S, ctrlKey: true },
+                callback: specificContextCallback,
+                context: "editor"
+            });
+
+            // 2. A "strictly global" shortcut, which only runs when context is null
+            keyManager.addCombination({
+                id: "strictGlobalOpen",
+                keys: { key: Keys.O, ctrlKey: true }, // Using shorthand is now possible!
+                callback: strictGlobalCallback,
+                strict: true, // `strict` is at the top level
+            });
+
+            // 3. A default global shortcut, which runs in any context unless overridden
+            keyManager.addCombination({
+                id: "defaultGlobalSave",
+                keys: { key: Keys.S, ctrlKey: true },
+                callback: defaultGlobalCallback,
+                // No `strict` flag here
+            });
+        });
+
+        it("should trigger both strict and default global shortcuts when context is null", () => {
+            keyManager.setContext(null);
+
+            dispatchKeyEvent(Keys.O, { ctrlKey: true });
+            assert.strictEqual(strictGlobalCallback.calledCount, 1, "Strictly global (Ctrl+O) should fire");
+
+            dispatchKeyEvent(Keys.S, { ctrlKey: true });
+            assert.strictEqual(defaultGlobalCallback.calledCount, 1, "Default global (Ctrl+S) should fire");
+            assert.strictEqual(specificContextCallback.calledCount, 0, "Specific context callback should not fire");
+        });
+
+        it("should suppress strict global but allow default global (which is then suppressed by priority)", () => {
+            keyManager.setContext("editor");
+
+            dispatchKeyEvent(Keys.O, { ctrlKey: true });
+            assert.strictEqual(strictGlobalCallback.calledCount, 0, "Strictly global (Ctrl+O) should NOT fire in 'editor' context");
+
+            dispatchKeyEvent(Keys.S, { ctrlKey: true });
+            assert.strictEqual(defaultGlobalCallback.calledCount, 0, "Default global (Ctrl+S) should be suppressed by the specific one");
+            assert.strictEqual(specificContextCallback.calledCount, 1, "Specific 'editor' callback (Ctrl+S) should fire and take priority");
+        });
+
+        it("should suppress strict global but trigger default global in a non-conflicting context", () => {
+            keyManager.setContext("someOtherContext");
+
+            dispatchKeyEvent(Keys.O, { ctrlKey: true });
+            assert.strictEqual(strictGlobalCallback.calledCount, 0, "Strictly global (Ctrl+O) should NOT fire in 'someOtherContext'");
+
+            dispatchKeyEvent(Keys.S, { ctrlKey: true });
+            assert.strictEqual(defaultGlobalCallback.calledCount, 1, "Default global (Ctrl+S) should fire since no override exists for this context");
+            assert.strictEqual(specificContextCallback.calledCount, 0, "Specific 'editor' callback should not fire");
+        });
+    });
+
+    describe("Sequence Context Behavior (`strict` flag)", () => {
+        // This test suite remains valid as `addSequence` already had the correct structure.
+        let strictSeqCallback: ReturnType<typeof createMockFn>;
+        let defaultSeqCallback: ReturnType<typeof createMockFn>;
+        let specificSeqCallback: ReturnType<typeof createMockFn>;
+        const testSequence: StandardKey[] = [Keys.M, Keys.A, Keys.P];
+
+        beforeEach(() => {
+            strictSeqCallback = createMockFn();
+            defaultSeqCallback = createMockFn();
+            specificSeqCallback = createMockFn();
+
+            keyManager.addSequence({ id: "strictSeq", sequence: [Keys.G, Keys.O], callback: strictSeqCallback, strict: true });
+            keyManager.addSequence({ id: "defaultSeq", sequence: testSequence, callback: defaultSeqCallback });
+            keyManager.addSequence({ id: "specificSeq", sequence: testSequence, callback: specificSeqCallback, context: "editor" });
+        });
+
+        it("should trigger both strict and default global sequences when context is null", () => {
+            keyManager.setContext(null);
+
+            [Keys.G, Keys.O].forEach(key => dispatchKeyEvent(key));
+            assert.strictEqual(strictSeqCallback.calledCount, 1, "Strict sequence should fire");
+
+            testSequence.forEach(key => dispatchKeyEvent(key));
+            assert.strictEqual(defaultSeqCallback.calledCount, 1, "Default sequence should fire");
+            assert.strictEqual(specificSeqCallback.calledCount, 0, "Specific sequence should not fire");
+        });
+
+        it("should suppress strict sequence and prioritize specific sequence in a matching context", () => {
+            keyManager.setContext("editor");
+
+            [Keys.G, Keys.O].forEach(key => dispatchKeyEvent(key));
+            assert.strictEqual(strictSeqCallback.calledCount, 0, "Strict sequence should NOT fire in 'editor' context");
+
+            testSequence.forEach(key => dispatchKeyEvent(key));
+            assert.strictEqual(defaultSeqCallback.calledCount, 0, "Default global sequence should be suppressed");
+            assert.strictEqual(specificSeqCallback.calledCount, 1, "Specific 'editor' sequence should fire");
+        });
+
+        it("should suppress strict sequence but trigger default global sequence in a non-conflicting context", () => {
+            keyManager.setContext("someOtherContext");
+
+            [Keys.G, Keys.O].forEach(key => dispatchKeyEvent(key));
+            assert.strictEqual(strictSeqCallback.calledCount, 0, "Strict sequence should NOT fire");
+
+            testSequence.forEach(key => dispatchKeyEvent(key));
+            assert.strictEqual(defaultSeqCallback.calledCount, 1, "Default global sequence should fire");
+            assert.strictEqual(specificSeqCallback.calledCount, 0, "Specific 'editor' sequence should not fire");
+        });
+    });
+
     describe("addSequence", () => {
         it("should trigger callback for a simple key sequence", () => {
             const config: KeySequenceConfig = { id: "seqGI", sequence: [Keys.G, Keys.I], callback: mockCallback };

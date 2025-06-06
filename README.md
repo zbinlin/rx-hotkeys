@@ -8,6 +8,7 @@ rx-hotkeys is a powerful and flexible TypeScript library for managing keyboard s
 * **Key Sequences:** Define shortcuts that trigger when a series of keys are pressed in a specific order.
 * **Sequence Timeouts:** Optional timeout between key presses in a sequence to prevent accidental triggers or indefinite waiting.
 * **Context Management:** Activate or deactivate groups of shortcuts based on the application's current state (e.g., "editor", "modal", "global").
+* **Strict Global Shortcuts:** Option to register global shortcuts that *only* fire when no other context is active, preventing them from triggering unintentionally.
 * **Type-Safe Key Definitions:** Uses an exported `Keys` object based on standard `KeyboardEvent.key` values for improved developer experience and fewer errors.
 * **RxJS Powered:** Built on RxJS for robust and efficient event handling.
 * **Prevent Default:** Option to prevent the default browser action for a triggered shortcut.
@@ -29,7 +30,7 @@ First, ensure you have the `rx-hotkeys` library and its helper Keys imported:
 import { Hotkeys, Keys, KeyCombinationConfig, KeySequenceConfig } from 'rx-hotkeys';
 ```
 
-1. Initialize Hotkeys
+### 1. Initialize Hotkeys
 
 Create an instance of the `Hotkeys` class. You can optionally provide an initial context and enable debug mode.
 
@@ -40,7 +41,7 @@ const keyManager = new Hotkeys(); // No initial context, debug mode off
 // const keyManager = new Hotkeys('editor', true);
 ```
 
-2. Add a Key Combination
+### 2. Add a Key Combination
 
 Register a shortcut for a key combination, like Ctrl+S.
 
@@ -58,7 +59,9 @@ const saveConfig: KeyCombinationConfig = {
 keyManager.addCombination(saveConfig);
 ```
 
-3. Add a Key SequenceRegister a shortcut for a sequence of keys, like the Konami code.
+### 3. Add a Key Sequence
+
+Register a shortcut for a sequence of keys, like the Konami code.
 
 ```typescript
 const konamiConfig: KeySequenceConfig = {
@@ -81,7 +84,9 @@ const konamiConfig: KeySequenceConfig = {
 keyManager.addSequence(konamiConfig);
 ```
 
-4. Manage ContextsControl which shortcuts are active by setting the context.
+### 4. Manage Contexts
+
+Control which shortcuts are active by setting the context.
 
 ```typescript
 // Assuming some shortcuts are configured with context: "editor"
@@ -91,7 +96,25 @@ keyManager.setContext("editor"); // Activates "editor" shortcuts and global shor
 keyManager.setContext(null);
 ```
 
-5. Clean Up
+#### Global vs. Strict Global Shortcuts
+
+Global shortcuts (those without a `context` property) have two behaviors:
+
+* **Default Global**: By default, a global shortcut will fire in *any* context, unless a more specific shortcut for the same key combination exists for that context.
+
+    ```typescript
+    // This shortcut for Ctrl+P will fire in the "editor" context, "modal" context, or any other,
+    // unless a specific "editor" shortcut for Ctrl+P exists.
+    keyManager.addCombination({ id: 'globalPrint', keys: { key: Keys.P, ctrlKey: true }, callback: myCallback });
+    ```
+* **Strict Global**: By passing `true` as the second argument to `addCombination` or `addSequence`, you can register a "strict" global shortcut. This shortcut will **only** fire when no context is active (`keyManager.getContext()` returns `null`).
+
+    ```typescript
+    // This help shortcut for "?" will ONLY fire when no other context is active.
+    keyManager.addCombination({ id: 'strictHelp', keys: Keys.QuestionMark, callback: openHelpModal }, true);
+    ```
+
+### 5. Clean Up
 
 When the Hotkeys instance is no longer needed (e.g., component unmount), call `destroy()` to clean up subscriptions and prevent memory leaks.
 
@@ -170,6 +193,7 @@ Cleans up all subscriptions and resources. Essential to call to prevent memory l
 * `context?: string | null`: Specifies the context in which this shortcut is active. If `null` or `undefined`, it's a global shortcut.
 * `preventDefault?: boolean`: If true, `event.preventDefault()` will be called when the shortcut triggers. Defaults to `false`.
 * `description?: string`: An optional description for the shortcut (e.g., for help menus).
+* `strict?: boolean` (optional): If `true` and the shortcut has no `context`, it will only fire when no other context is active. Defaults to `false`.
 
 `KeySequenceConfig`
 
@@ -180,13 +204,13 @@ Cleans up all subscriptions and resources. Essential to call to prevent memory l
 * `preventDefault?: boolean`: If true, `event.preventDefault()` is called for the last event in the sequence. Defaults to `false`.
 * `description?: string`: Optional description.
 * `sequenceTimeoutMs?: number`: Optional. Maximum time (in milliseconds) allowed between consecutive key presses in the sequence. If exceeded, the sequence resets. If `0` or `undefined`, no inter-key timeout is applied (uses simpler buffer-based matching).
+* `strict?: boolean` (optional): If `true` and the shortcut has no `context`, it will only fire when no other context is active. Defaults to `false`.
 
 
 ## Key Matching Logic
 
-* Single Character Keys (e.g., `Keys.A`, `Keys.Digit7`): When you configure a shortcut with a single character key from `Keys`, the library matches it case-insensitively against the `event.key` from the browser. For example, if you configure `Keys.A`, it will trigger for both "a" and "A" key presses (assuming Shift isn't a required modifier).
-* Special Keys (e.g., `Keys.Enter`, `Keys.ArrowUp`, `Keys.Escape`): These are multi-character `event.key` values. The library matches these case-sensitively against the `event.key`. Using the `Keys` object ensures you provide the correct, standard case-sensitive string.
-
+* **Single Character Keys** (e.g., `Keys.A`, `Keys.Digit7`): When you configure a shortcut with a single character key from `Keys`, the library matches it case-insensitively against the `event.key` from the browser. For example, if you configure `Keys.A`, it will trigger for both "a" and "A" key presses (assuming Shift isn't a required modifier).
+* **Special Keys** (e.g., `Keys.Enter`, `Keys.ArrowUp`, `Keys.Escape`): These are multi-character `event.key` values. The library matches these case-sensitively against the `event.key`. Using the `Keys` object ensures you provide the correct, standard case-sensitive string.
 
 ## Contributing
 

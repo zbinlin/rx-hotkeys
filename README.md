@@ -111,7 +111,7 @@ Global shortcuts (those without a `context` property) have two behaviors:
 
     ```typescript
     // This help shortcut for "?" will ONLY fire when no other context is active.
-    keyManager.addCombination({ id: 'strictHelp', keys: Keys.QuestionMark, callback: openHelpModal }, true);
+    keyManager.addCombination({ id: 'strictHelp', keys: Keys.QuestionMark, callback: openHelpModal, strict: true });
     ```
 
 ### 5. Clean Up

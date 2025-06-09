@@ -134,3 +134,25 @@ export const Keys = {
  * This ensures type safety when configuring shortcuts.
  */
 export type StandardKey = typeof Keys[keyof typeof Keys];
+
+/**
+ * A map of common aliases for keys to their standard `StandardKey` value.
+ * Used internally for parsing string-based shortcut definitions.
+ * @internal
+ */
+export const KeyAliases: Record<string, StandardKey> = {
+    'esc': Keys.Escape, 'escape': Keys.Escape,
+    'enter': Keys.Enter, 'return': Keys.Enter,
+    'tab': Keys.Tab,
+    'space': Keys.Space, 'spacebar': Keys.Space,
+    'backspace': Keys.Backspace,
+    'del': Keys.Delete, 'delete': Keys.Delete,
+    'ins': Keys.Insert, 'insert': Keys.Insert,
+    'up': Keys.ArrowUp, 'down': Keys.ArrowDown, 'left': Keys.ArrowLeft, 'right': Keys.ArrowRight,
+    'pageup': Keys.PageUp, 'pagedown': Keys.PageDown,
+    'cmd': Keys.Meta, 'command': Keys.Meta, 'win': Keys.Meta, 'windows': Keys.Meta,
+    'ctrl': Keys.Control, 'control': Keys.Control,
+    'alt': Keys.Alt, 'option': Keys.Alt,
+    'shift': Keys.Shift,
+    // Add any other desired aliases here
+};

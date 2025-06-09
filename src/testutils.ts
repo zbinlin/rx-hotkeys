@@ -16,20 +16,25 @@ export function createMockFn() {
 }
 
 /**
- * Dispatches a KeyboardEvent to the document (JSDOM).
- * @param key - The key value, e.g., "a", "Escape", "ArrowUp"
- * @param modifiers - Optional modifier keys
+ * Dispatches a KeyboardEvent to a specified target element (or document).
+ * @param target - The EventTarget to dispatch the event on (e.g., document or an HTMLElement).
+ * @param key - The key value, e.g., "a", "Escape", "ArrowUp".
+ * @param eventType - The type of event to dispatch, 'keydown' or 'keyup'.
+ * @param modifiers - Optional modifier keys for the event.
+ * @returns The dispatched KeyboardEvent.
  */
 export function dispatchKeyEvent(
+    target: EventTarget,
     key: string,
+    eventType: 'keydown' | 'keyup' = 'keydown',
     modifiers: Partial<KeyboardEventInit> = {}
 ): KeyboardEvent {
-    const event = new KeyboardEvent("keydown", {
+    const event = new KeyboardEvent(eventType, {
         key,
         bubbles: true,
         cancelable: true,
         ...modifiers,
     });
-    document.dispatchEvent(event);
+    target.dispatchEvent(event);
     return event;
 }

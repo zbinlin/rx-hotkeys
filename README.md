@@ -4,6 +4,7 @@ rx-hotkeys is a powerful and flexible TypeScript library for managing keyboard s
 
 ## ✨ Features
 
+* **Official React Hooks**: Provides an official wrapper (`HotkeysProvider`, `useHotkeys`) for seamless, idiomatic integration with React.
 * **Fully Observable API**: Returns an RxJS `Observable` for each shortcut, allowing for powerful stream manipulation like chaining, filtering, debouncing, and merging with other streams.
 * **Flexible Shortcut Definitions**: Define shortcuts using simple, intuitive strings (e.g., `"ctrl+s"` or `"g -> i"`) in addition to the classic object-based configuration.
 * **Element-Scoped Listeners**: Attach shortcuts to specific DOM elements, so they are only active within a certain component or area, not just on the global `document`.
@@ -31,7 +32,7 @@ Starting with v3.0, the API has been significantly updated for a more powerful a
 
 **Migration Example:**
 
-**Old (v1.x):**
+**Old (v2.x):**
 ```typescript
 // The old way
 keyManager.addCombination({
@@ -163,6 +164,99 @@ When the Hotkeys instance is no longer needed (e.g., component unmount), call `d
 keyManager.destroy();
 ```
 
+---
+
+## Usage with React
+
+The library provides a dedicated React wrapper for the best developer experience.
+
+### Step 1: Wrap Your App with `HotkeysProvider`
+
+First, import `HotkeysProvider` and wrap your root application component with it. This creates a single, shared instance of the hotkeys manager for your entire app.
+
+```jsx
+// In your main App.js or index.js
+import React from 'react';
+import ReactDOM from 'react-dom/client';
+import { HotkeysProvider } from 'rx-hotkeys/react';
+import App from './App';
+
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(
+  <React.StrictMode>
+    <HotkeysProvider debugMode={true}>
+      <App />
+    </HotkeysProvider>
+  </React.StrictMode>
+);
+```
+
+### Step 2: Use the `useHotkeys` Hook in Your Components
+
+Now, you can use the `useHotkeys` and `useSequence` hooks anywhere in your component tree. The hook automatically handles registration, cleanup, and stale closures. You no longer need to provide a dependency array for your callback.
+
+```jsx
+// src/components/Counter.jsx
+import React, { useState } from 'react';
+import { useHotkeys, useSequence } from 'rx-hotkeys/react';
+
+export function Counter() {
+  const [count, setCount] = useState(0);
+
+  // The callback can safely use the latest component state (like `count`)
+  // without you needing to worry about stale closures or dependency arrays.
+  const handleIncrement = () => {
+    console.log(`Incrementing from ${count}...`);
+    setCount(count + 1);
+  };
+
+  // Register '+' key to increment.
+  useHotkeys('+', handleIncrement);
+
+  // Register 'c' key to increment, with options.
+  useHotkeys('c', handleIncrement, { preventDefault: true });
+
+  // Register a sequence to reset the counter.
+  useSequence('r -> e -> s -> e -> t', () => {
+    console.log('Resetting counter!');
+    setCount(0);
+  });
+
+  return (
+    <div>
+      <h2>Count: {count}</h2>
+      <p>Press '+' or 'c' to increment. Type 'reset' to reset.</p>
+    </div>
+  );
+}
+```
+
+### Step 3: Manage Context with `useScopedHotkeysContext`
+
+This hook allows a component (like a modal) to activate a specific context only while it is mounted.
+
+```jsx
+// src/components/MyModal.jsx
+import { useHotkeys, useScopedHotkeysContext } from 'rx-hotkeys/react';
+
+export function MyModal({ onClose }) {
+  // This activates the 'modal' context for all children of this component.
+  // When MyModal unmounts, this context is automatically removed from the stack.
+  useScopedHotkeysContext('modal');
+
+  // This hotkey will only be active when the 'modal' context is active.
+  useHotkeys('escape', onClose, { context: 'modal' });
+
+  return (
+    <div className="modal">
+      <p>This is a modal. Press ESC to close.</p>
+      {/* ... other modal content ... */}
+    </div>
+  );
+}
+```
+
+---
 
 ## API Reference
 
@@ -171,7 +265,7 @@ keyManager.destroy();
 * `Keys`: An exported constant object containing standard `KeyboardEvent.key` string values (e.g., `Keys.Enter`, `Keys.ArrowUp`, `Keys.A`). It's highly recommended to use these for type safety and to avoid typos.
 * `StandardKey`: A TypeScript type representing any valid key string from the `Keys` object.
 
-### `Hotkeys` Class
+### `Hotkeys` Class (Core)
 
 `constructor(initialContext?: string | null, debugMode?: boolean)`
 
@@ -219,6 +313,30 @@ Enables or disables console logging for debug purposes.
 
 Cleans up all subscriptions and resources. Essential to call to prevent memory leaks.
 
+### React Hooks (`rx-hotkeys/react`)
+
+`HotkeysProvider({ children, initialContext?, debugMode? })`
+
+A React component that provides the Hotkeys instance to its children.
+
+`useHotkeys(keys, callback, options?)`
+
+A React hook to register a key combination.
+* `keys: string | string[]`: The shortcut definition (e.g., `'ctrl+s'`).
+* `callback: (event: KeyboardEvent) => void`: The function to execute.
+* `options?: HotkeyHookOptions`: Optional config for `preventDefault`, `context`, `target`, etc.
+
+`useSequence(sequence, callback, options?)`
+
+A React hook to register a key sequence.
+* `sequence: string | string[]`: The sequence definition (e.g., `'g -> i'`).
+* `callback: (event: KeyboardEvent) => void`: The function to execute.
+* `options?: SequenceHookOptions`: Optional config for `preventDefault`, `context`, etc.
+
+`useScopedHotkeysContext(context)`
+
+A React hook to apply a specific context for the lifetime of the component.
+
 ### Configuration Interfaces
 
 #### `KeyCombinationConfig`
@@ -251,6 +369,8 @@ Cleans up all subscriptions and resources. Essential to call to prevent memory l
 * **Case Insensitivity**: The library automatically handles case for you. `keys: "a"` will match both "a" and "A" presses. `keys: "escape"` will match an event where `event.key` is `"Escape"`.
 * **Aliases**: Common aliases are supported in string definitions, such as `cmd` for `Meta`, `option` for `Alt`, and `esc` for `Escape`.
 * **Special Keys**: For full type-safety, it is recommended to use the exported `Keys` object (e.g., `Keys.Enter`, `Keys.ArrowUp`).
+
+---
 
 ## Contributing
 

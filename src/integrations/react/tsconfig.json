@@ -1,0 +1,16 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["DOM", "DOM.Iterable", "ESNext"],
+    "outDir": "../../../dist/integrations/react",
+    "rootDir": ".",
+    "jsx": "react-jsx",
+    "jsxImportSource": "react",
+    "noEmit": false,
+    "tsBuildInfoFile": "../../../.cache/react.tsbuildinfo"
+  },
+  "references": [
+    { "path": "../../core" }
+  ],
+  "include": ["."]
+}

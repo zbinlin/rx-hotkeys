@@ -3,15 +3,20 @@
   "version": "3.0.0",
   "type": "module",
   "scripts": {
-    "build": "tsc",
-    "prepublishOnly": "npm run build",
+    "clean": "rm -rf dist",
+    "build": "tsc --build",
+    "prepublishOnly": "npm run clean && npm run build",
     "pretest": "npm run build",
     "test": "node --test './dist/**/*.test.js'"
   },
   "exports": {
     ".": {
-      "default": "./dist/index.js",
-      "types": "./dist/index.d.ts"
+      "default": "./dist/core/index.js",
+      "types": "./dist/core/index.d.ts"
+    },
+    "./react": {
+      "default": "./dist/integrations/react/index.js",
+      "types": "./dist/integrations/react/index.d.ts"
     }
   },
   "keywords": [
@@ -32,13 +37,19 @@
   "license": "MIT",
   "description": "Advanced Keyboard Shortcut Management library using rxjs",
   "packageManager": "npm@10.9.1+sha512.c89530d37c4baa38afd43e76a077a84b9aa63840b986426584fd5c5a54ab0a0b21bb1595c851042b733784b0b43706d36a494b4d8ae1a086a762cb8d3f95942a",
+  "peerDependencies": {
+    "react": "^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0",
+    "react-dom": "^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0",
+    "rxjs": "^7.0.0"
+  },
   "devDependencies": {
     "@types/jsdom": "^21.1.7",
     "@types/node": "^22.15.19",
+    "@types/react": "^19.1.6",
+    "@types/react-dom": "^19.1.6",
     "jsdom": "^26.1.0",
+    "react": "^19.1.0",
+    "rxjs": "^7.8.2",
     "typescript": "^5.8.3"
-  },
-  "dependencies": {
-    "rxjs": "^7.8.2"
   }
 }

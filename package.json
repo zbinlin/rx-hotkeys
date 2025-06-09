@@ -3,7 +3,7 @@
   "version": "3.1.0",
   "type": "module",
   "scripts": {
-    "clean": "rm -rf dist",
+    "clean": "rm -rf dist && rm -rf .cache",
     "build": "tsc --build",
     "prepublishOnly": "npm run clean && npm run build",
     "pretest": "npm run build",

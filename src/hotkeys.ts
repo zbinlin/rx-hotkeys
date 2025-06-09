@@ -1,6 +1,6 @@
 import {
-    fromEvent, BehaviorSubject, Subscription, Observable, EMPTY,
-    filter, map, bufferCount, withLatestFrom, tap, catchError, scan, merge,
+    fromEvent, BehaviorSubject, EMPTY, Observable,
+    filter, map, bufferCount, withLatestFrom, tap, catchError, scan, merge, Subject, takeUntil,
 } from "rxjs";
 import { type StandardKey } from "./keys.js";
 
@@ -25,7 +25,10 @@ interface SequenceScanState { // As per your uploaded file
 
 interface ShortcutConfigBase {
     id: string;
-    callback: (event: KeyboardEvent) => void;
+    /**
+     * @deprecated The callback property is deprecated. `addCombination` and `addSequence` now return an Observable. Please subscribe to it instead.
+     */
+    callback?: (event: KeyboardEvent) => void;
     context?: string | null;
     preventDefault?: boolean;
     description?: string;
@@ -106,7 +109,7 @@ type ShortcutConfig = KeyCombinationConfig | KeySequenceConfig;
 export interface ActiveShortcut { // Made exportable as per previous diff
     id: string;
     config: ShortcutConfig;
-    subscription: Subscription;
+    terminator$: Subject<void>;
 }
 
 // --- Helper function to compare keys ---
@@ -332,20 +335,20 @@ export class Hotkeys {
 
     private _registerShortcut(
         config: ShortcutConfig,
-        subscription: Subscription,
+        terminator$: Subject<void>,
         type: ShortcutTypes,
         detailsForLog: string
-    ): string {
+    ): void {
         const existingShortcut = this.activeShortcuts.get(config.id);
         if (existingShortcut) {
-            console.warn(`${Hotkeys.LOG_PREFIX} Shortcut with ID "${config.id}" already exists. It will be overwritten.`);
-            existingShortcut.subscription.unsubscribe();
+            console.warn(`${Hotkeys.LOG_PREFIX} Shortcut with ID "${config.id}" already exists. The old instance will be terminated and overwritten.`);
+            existingShortcut.terminator$.next();
+            existingShortcut.terminator$.complete();
         }
-        this.activeShortcuts.set(config.id, { id: config.id, config, subscription });
+        this.activeShortcuts.set(config.id, { id: config.id, config, terminator$ });
         if (this.debugMode) {
             console.log(`${Hotkeys.LOG_PREFIX} ${type} shortcut "${config.id}" added. ${detailsForLog}, Context: ${config.context ?? "any"}`);
         }
-        return config.id;
     }
 
     /**
@@ -398,33 +401,39 @@ export class Hotkeys {
     }
 
     /**
-     * Registers a key combination shortcut (e.g., Ctrl+S, Shift+Enter, or a single key like Escape).
-     * The callback is triggered when the specified key and modifier keys (if any) are pressed.
+     * Registers a key combination shortcut (e.g., Ctrl+S, Shift+Enter, or a single key like Escape)
+     * and returns an Observable that emits the `KeyboardEvent` when the combination is triggered.
      * @param config - Configuration object for the key combination.
      * See {@link KeyCombinationConfig} for details.
      * The `key` property (or the direct `StandardKey` if using shorthand) must be a value from the `Keys` object.
-     * @returns The ID of the registered shortcut if successful, or `undefined` if the configuration is invalid.
-     * A warning is logged to the console if the configuration is invalid or if a shortcut with the same ID is overwritten.
+     * @returns An `Observable<KeyboardEvent>` that you can subscribe to. The stream will be automatically
+     * completed if the shortcut is removed via `remove(id)` or `destroy()`, or if it's overwritten.
+     * If the configuration is invalid, an empty Observable is returned and a warning is logged.
      * @example
      * ```typescript
      * import { Keys } from "./keys";
      * // For Ctrl+S
-     * keyManager.addCombination({
+     * const save$ = keyManager.addCombination({
      * id: "saveFile",
      * keys: { key: Keys.S, ctrlKey: true },
-     * callback: () => console.log("File saved!"),
      * context: "editor"
      * });
+     * save$.subscribe(event => console.log("File saved!", event));
+     *
      * // For just the Escape key, or Ctrl+Space
-     * keyManager.addCombination({
+     * const close$ = keyManager.addCombination({
      * id: "closeModal",
      * keys: [Keys.Escape, {key: Keys.Space, ctrlKey: true}],
-     * callback: () => console.log("Modal closed!")
      * });
+     * close$.subscribe(() => console.log("Modal closed!"));
      * ```
      */
-    public addCombination(config: KeyCombinationConfig): string | undefined {
-        const { keys, callback, context, preventDefault = false, id, strict = false } = config;
+    public addCombination(config: KeyCombinationConfig): Observable<KeyboardEvent> {
+        const { keys, context, preventDefault = false, id, strict = false } = config;
+
+        if (config.callback) {
+            console.warn(`${Hotkeys.LOG_PREFIX} Shortcut "${id}" was provided a callback, but 'addCombination' now returns an Observable. The callback will be ignored. Please subscribe to the returned Observable instead.`);
+        }
 
         if (context != null && strict) {
             console.warn(`${Hotkeys.LOG_PREFIX} Shortcut "${id}" has both a context(${context}) and the 'strict' flag. The 'strict' flag will be ignored.`);
@@ -434,7 +443,7 @@ export class Hotkeys {
 
         if (keyTriggers.length === 0) {
             console.warn(`${Hotkeys.LOG_PREFIX} "keys" array for combination shortcut "${id}" is empty. Shortcut not added.`);
-            return undefined;
+            return EMPTY;
         }
 
         const observables: Observable<KeyboardEvent>[] = [];
@@ -444,7 +453,7 @@ export class Hotkeys {
             const parsedTrigger = this._parseKeyTrigger(keyInput, id);
             if (!parsedTrigger) {
                 // Error already logged by _parseKeyTrigger
-                return undefined;
+                return EMPTY;
             }
 
             const { configuredMainKey, ctrlKeyConfig, altKeyConfig, shiftKeyConfig, metaKeyConfig, logDetails } = parsedTrigger;
@@ -490,14 +499,16 @@ export class Hotkeys {
         if (observables.length === 0) {
              // Should be caught by keyTriggers.length === 0, but as a safeguard.
             console.warn(`${Hotkeys.LOG_PREFIX} No valid key triggers for combination shortcut "${id}". Shortcut not added.`);
-            return undefined;
+            return EMPTY;
         }
 
+        const terminator$ = new Subject<void>();
         const finalShortcut$ = merge(...observables);
         const overallLogDetails = Array.isArray(keys) ? `Triggers: [ ${logParts.join(", ")} ]` : logParts[0];
 
+        this._registerShortcut(config, terminator$, ShortcutTypes.Combination, overallLogDetails);
 
-        const subscription = finalShortcut$.pipe(
+        return finalShortcut$.pipe(
             tap(event => {
                 if (this.debugMode) {
                     const preventAction = preventDefault ? ", preventing default" : "";
@@ -508,49 +519,47 @@ export class Hotkeys {
             catchError(err => {
                 console.error(`${Hotkeys.LOG_PREFIX} Error in combination stream for shortcut "${id}":`, err);
                 return EMPTY;
-            })
-        ).subscribe(event => {
-            try {
-                callback(event);
-            } catch (e) {
-                console.error(`${Hotkeys.LOG_PREFIX} Error in user callback for combination shortcut "${id}":`, e);
-            }
-        });
-
-        return this._registerShortcut(config, subscription, ShortcutTypes.Combination, overallLogDetails);
+            }),
+            takeUntil(terminator$)
+        );
     }
 
     /**
-     * Registers a key sequence shortcut (e.g., g -> i, or ArrowUp -> ArrowUp -> ArrowDown).
-     * The callback is triggered when the specified keys are pressed in order.
+     * Registers a key sequence shortcut (e.g., g -> i, or ArrowUp -> ArrowUp -> ArrowDown)
+     * and returns an Observable that emits the final `KeyboardEvent` of the sequence when it's completed.
      * An optional timeout can be specified for the time allowed between key presses in the sequence.
      * @param config - Configuration object for the key sequence.
      * See {@link KeySequenceConfig} for details.
      * Each key in the `sequence` array must be a value from the `Keys` object.
-     * @returns The ID of the registered shortcut if successful, or `undefined` if the configuration is invalid (e.g., empty sequence or invalid keys).
-     * A warning is logged to the console if the configuration is invalid or if a shortcut with the same ID is overwritten.
+     * @returns An `Observable<KeyboardEvent>` that you can subscribe to. The stream will be automatically
+     * completed if the shortcut is removed via `remove(id)` or `destroy()`, or if it's overwritten.
+     * If the configuration is invalid, an empty Observable is returned and a warning is logged.
      * @example
      * ```typescript
      * import { Keys } from "./keys";
-     * keyManager.addSequence({
+     * const konami$ = keyManager.addSequence({
      * id: "konamiCode",
      * sequence: [Keys.ArrowUp, Keys.ArrowUp, Keys.ArrowDown, Keys.ArrowDown, Keys.A, Keys.B],
-     * callback: () => console.log("Konami!"),
      * sequenceTimeoutMs: 2000 // 2 seconds between keys
      * });
+     * konami$.subscribe(event => console.log("Konami!", event));
      * ```
      */
-    public addSequence(config: KeySequenceConfig): string | undefined {
-        const { sequence, callback, context, preventDefault = false, id, sequenceTimeoutMs, strict = false } = config;
+    public addSequence(config: KeySequenceConfig): Observable<KeyboardEvent> {
+        const { sequence, context, preventDefault = false, id, sequenceTimeoutMs, strict = false } = config;
+
+        if (config.callback) {
+            console.warn(`${Hotkeys.LOG_PREFIX} Shortcut "${id}" was provided a callback, but 'addSequence' now returns an Observable. The callback will be ignored. Please subscribe to the returned Observable instead.`);
+        }
 
         if (!Array.isArray(sequence) || sequence.length === 0) {
             console.warn(`${Hotkeys.LOG_PREFIX} Sequence for shortcut "${id}" is empty or invalid. Shortcut not added.`);
-            return undefined;
+            return EMPTY;
         }
         // Corrected validation: Check for actual empty string, not a string that trims to empty.
         if (sequence.some(key => typeof key !== "string" || (key as string) === "")) { // StandardKey type should prevent empty strings.
             console.warn(`${Hotkeys.LOG_PREFIX} Invalid key in sequence for shortcut "${id}". All keys must be non-empty string values from Keys. Shortcut not added.`);
-            return undefined;
+            return EMPTY;
         }
         if (context && strict) {
              console.warn(`${Hotkeys.LOG_PREFIX} Shortcut "${id}" has both a context and the 'strict' flag. The 'strict' flag will be ignored.`);
@@ -627,6 +636,7 @@ export class Hotkeys {
             );
         }
 
+        const terminator$ = new Subject<void>();
         const finalShortcutWithPriority$ = shortcut$.pipe(
             filter((completedEvents: KeyboardEvent[]) => {
                 if (context != null || strict) { // This sequence is NOT global or strict
@@ -666,22 +676,18 @@ export class Hotkeys {
             })
         );
 
-        const subscription = finalShortcutWithPriority$.subscribe((events: KeyboardEvent[]) => {
-            try {
-                // Ensure callback receives the last event of the sequence, similar to combination.
-                if (events.length > 0) callback(events[events.length - 1]);
-            } catch (e) {
-                console.error(`${Hotkeys.LOG_PREFIX} Error in user callback for sequence shortcut "${id}":`, e);
-            }
-        });
-
         const logDetails = `Sequence: ${sequence.join(" -> ")}${sequenceTimeoutMs && sequenceTimeoutMs > 0 ? ` (timeout: ${sequenceTimeoutMs}ms)` : ""}`;
-        return this._registerShortcut(config, subscription, ShortcutTypes.Sequence, logDetails);
+        this._registerShortcut(config, terminator$, ShortcutTypes.Sequence, logDetails);
+
+        return finalShortcutWithPriority$.pipe(
+            map((events: KeyboardEvent[]) => events[events.length - 1]),
+            takeUntil(terminator$)
+        );
     }
 
     /**
      * Removes a registered shortcut by its ID.
-     * This will unsubscribe from the underlying keyboard event stream for that shortcut.
+     * This will complete the corresponding Observable stream for any subscribers.
      * @param id - The unique ID of the shortcut to remove.
      * @returns True if the shortcut was found and removed, false otherwise.
      * A warning is logged to the console if no shortcut with the given ID is found.
@@ -689,7 +695,8 @@ export class Hotkeys {
     public remove(id: string): boolean {
         const shortcut = this.activeShortcuts.get(id);
         if (shortcut) {
-            shortcut.subscription.unsubscribe();
+            shortcut.terminator$.next();
+            shortcut.terminator$.complete();
             this.activeShortcuts.delete(id);
             if (this.debugMode) console.log(`${Hotkeys.LOG_PREFIX} Shortcut "${id}" removed.`);
             return true;
@@ -725,8 +732,11 @@ export class Hotkeys {
      * After calling `destroy()`, the instance should not be used further.
      */
     public destroy(): void {
-        if (this.debugMode) console.log(`${Hotkeys.LOG_PREFIX} Destroying library instance and unsubscribing all shortcuts.`);
-        this.activeShortcuts.forEach(shortcut => shortcut.subscription.unsubscribe());
+        if (this.debugMode) console.log(`${Hotkeys.LOG_PREFIX} Destroying library instance and terminating all shortcut streams.`);
+        this.activeShortcuts.forEach(shortcut => {
+            shortcut.terminator$.next();
+            shortcut.terminator$.complete();
+        });
         this.activeShortcuts.clear();
         this.activeContext$.complete();
         if (this.debugMode) console.log(`${Hotkeys.LOG_PREFIX} Library destroyed.`);

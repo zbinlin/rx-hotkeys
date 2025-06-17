@@ -1,6 +1,7 @@
 export {
     type HotkeysProviderProps,
     HotkeysProvider,
+    useHotkeysManager,
     useScopedHotkeysContext,
 } from "./provider.js";
 

@@ -4,13 +4,15 @@ rx-hotkeys is a powerful and flexible TypeScript library for managing keyboard s
 
 ## ✨ Features
 
-* **Official React Hooks**: Provides an official wrapper (`HotkeysProvider`, `useHotkeys`) for seamless, idiomatic integration with React.
+* **Official React Hooks**: Provides an official wrapper (`HotkeysProvider`, `useHotkeys`, `useScopedHotkeysContext`) for seamless, idiomatic integration with React.
 * **Fully Observable API**: Returns an RxJS `Observable` for each shortcut, allowing for powerful stream manipulation like chaining, filtering, debouncing, and merging with other streams.
 * **Flexible Shortcut Definitions**: Define shortcuts using simple, intuitive strings (e.g., `"ctrl+s"` or `"g -> i"`) in addition to the classic object-based configuration.
 * **Element-Scoped Listeners**: Attach shortcuts to specific DOM elements, so they are only active within a certain component or area, not just on the global `document`.
 * **`keyup` Event Support**: Trigger actions on key release (`keyup`) in addition to the default key press (`keydown`).
 * **Key Combinations & Sequences**: Supports both simultaneous key presses (`Ctrl+S`) and ordered key sequences (`g` -> `c`).
 * **Context Management**: Activate or deactivate groups of shortcuts based on the application's current state (e.g., "editor", "modal", "global").
+* **Stack-Based Context Management**: Natively handles nested contexts with an `enter`/`leave` API, perfect for hierarchical UIs like pages, modals, and dropdowns.
+* **Temporary Context Override**: Safely override all contexts with a high-priority temporary context, ideal for global application states like "saving" or "loading".
 * **Strict Global Shortcuts**: Option to register global shortcuts that *only* fire when no other context is active.
 * **Type-Safe Key Definitions**: Uses an exported `Keys` object based on standard `KeyboardEvent.key` values for a superior developer experience and fewer errors.
 * **Sequence Timeouts**: Optional timeout between key presses in a sequence to prevent accidental triggers.
@@ -22,40 +24,17 @@ rx-hotkeys is a powerful and flexible TypeScript library for managing keyboard s
 npm install rxjs rx-hotkeys
 ```
 
-## ⚠️ Breaking Changes (v3.0+)
+## ⚠️ Breaking Changes (v4.0+)
 
-Starting with v3.0, the API has been significantly updated for a more powerful and idiomatic RxJS experience. This is a major breaking change.
+Starting with v4.0, the context management API has been fundamentally redesigned into a more powerful and robust dual-mode system.
 
-* `addCombination` and `addSequence` no longer accept a `callback` property in their configuration.
-* They now return an **`Observable<KeyboardEvent>`**.
-* You **must** now call `.subscribe()` on the returned Observable to execute your action.
+* The old `setContext` method (which returned a boolean) has been replaced.
+* The library now offers two distinct ways to manage contexts:
+    1.  **Context Stack (`enterContext`/`leaveContext`)**: For hierarchical UI states.
+    2.  **Context Override (`setContext` returns a `restore` function)**: For temporary, global state overrides.
+* `getContext` method rename to `getActiveContext`.
 
-**Migration Example:**
-
-**Old (v2.x):**
-```typescript
-// The old way
-keyManager.addCombination({
-  id: "save",
-  keys: { key: Keys.S, ctrlKey: true },
-  callback: () => console.log("File saved!"),
-});
-```
-
-**New (v3.0+):**
-```typescript
-// The new, observable-based way
-const save$ = keyManager.addCombination({
-  id: "save",
-  keys: { key: Keys.S, ctrlKey: true }
-});
-
-const subscription = save$.subscribe(() => console.log("File saved!"));
-
-// Don't forget to unsubscribe when your component is destroyed!
-// The stream will also complete automatically if the shortcut is removed or keyManager.destroy() is called.
-// subscription.unsubscribe();
-```
+Please review the "Context Management" section below for details.
 
 ## Basic Usage
 
@@ -143,16 +122,55 @@ const submit$ = keyManager.addCombination({
 submit$.subscribe(() => console.log("Form submitted on Enter keyup!"));
 ```
 
-### 6. Manage Contexts
+### 6. Context Management
 
-Control which shortcuts are active by setting the context.
+You now have two powerful tools for managing contexts.
+
+#### A) Context Stack (`enterContext` / `leaveContext`)
+
+Use this for nested UI scopes that follow a clear hierarchy.
 
 ```typescript
-// Assuming some shortcuts are configured with context: "editor"
-keyManager.setContext("editor"); // Activates "editor" shortcuts and global shortcuts
+// A shortcut with context: "editor" will NOT be active here.
+console.log(keyManager.getActiveContext()); // null
 
-// To activate only global shortcuts (those with no context or context: null)
-keyManager.setContext(null);
+// Activate the "editor" context
+keyManager.enterContext("editor");
+// Now, pressing Ctrl+S will trigger the "saveFile" shortcut.
+console.log(keyManager.getActiveContext()); // 'editor'
+
+// Imagine opening a dropdown menu inside the editor
+keyManager.enterContext("dropdown-menu");
+console.log(keyManager.getActiveContext()); // 'dropdown-menu'
+
+// When the dropdown closes, leave its context
+keyManager.leaveContext();
+console.log(keyManager.getActiveContext()); // 'editor' (restored automatically)
+```
+
+#### B) Context Override (`setContext` and `restore`)
+
+Use this for temporary, high-priority states that should override everything else.
+
+```typescript
+async function performSave() {
+  // Set a temporary "saving" context that overrides the stack.
+  const restore = keyManager.setContext('saving');
+
+  // Any shortcuts with context: 'saving' are now active.
+  // All other shortcuts (editor, etc.) are inactive.
+  console.log(keyManager.getActiveContext()); // 'saving'
+
+  try {
+    await someAsyncSaveOperation();
+  } finally {
+    // No matter what happens, call restore() to clear the override
+    // and return control to the context stack.
+    restore();
+  }
+
+  console.log(keyManager.getActiveContext()); // e.g., 'editor' (restored from the stack)
+}
 ```
 
 ### 7. Clean Up
@@ -283,13 +301,25 @@ Registers a key sequence shortcut.
 * `config`: The `KeySequenceConfig` object.
 * Returns an `Observable<KeyboardEvent>` that emits the final `KeyboardEvent` when the sequence is completed.
 
-`setContext(contextName: string | null): boolean`
+`enterContext(contextName: string | null): void`
 
-Sets the active context. Only shortcuts matching this context or global shortcuts will trigger.
+Pushes a context onto the **context stack**. It becomes active if no override is set.
 
-`getContext(): string | null`
+`leaveContext(): string | null | undefined`
 
-Returns the current active context name, or `null`.
+Pops a context from the **context stack**, returning the context that was left.
+
+`setContext(contextName: string | null): () => void`
+
+Sets a temporary **override context**. Returns a `restore` function to clear the override.
+
+`getActiveContext(): string | null`
+
+Returns the current active context (checks for an override first, then the stack top).
+
+`onContextChange$: Observable<string | null>`
+
+A public `Observable` property that emits the active context whenever it changes.
 
 `remove(id: string): boolean`
 
@@ -333,9 +363,12 @@ A React hook to register a key sequence.
 * `callback: (event: KeyboardEvent) => void`: The function to execute.
 * `options?: SequenceHookOptions`: Optional config for `preventDefault`, `context`, etc.
 
-`useScopedHotkeysContext(context)`
+`useScopedHotkeysContext(context, enabled: boolean = true)`
 
 A React hook to apply a specific context for the lifetime of the component.
+
+`useHotkeysManager(): Hotkeys`
+A hook to get direct access to the `Hotkeys` manager instance.
 
 ### Configuration Interfaces
 

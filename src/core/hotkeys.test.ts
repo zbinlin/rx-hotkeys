@@ -2,7 +2,7 @@ import { describe, it, before, beforeEach, afterEach, mock, Mock } from "node:te
 import assert from "node:assert";
 import { Hotkeys, type KeyCombinationConfig, type KeySequenceConfig, ShortcutTypes } from "./hotkeys.js";
 import { Keys, type StandardKey } from "./keys.js";
-import { fromEvent, BehaviorSubject, Observable, EMPTY } from "rxjs";
+import { fromEvent, BehaviorSubject, Observable, EMPTY, firstValueFrom } from "rxjs";
 import { createMockFn, dispatchKeyEvent } from "./testutils.js";
 import { JSDOM } from "jsdom";
 
@@ -87,125 +87,69 @@ describe("Hotkeys Library (Node.js Test Runner)", () => {
     });
 
     // ... (Initialization and Basic Context tests remain the same) ...
-    describe("Initialization and Context Management", () => {
-        it("should initialize without errors", () => {
+    describe("Initialization and Context Stack Management", () => {
+        it("should initialize with a base context (null by default)", () => {
             assert(keyManager instanceof Hotkeys);
-            assert.strictEqual(keyManager.getContext(), null); // Default initial context
+            assert.strictEqual(keyManager.getActiveContext(), null);
         });
 
-        it("should initialize with a null context by default", () => {
-            assert.strictEqual(keyManager.getContext(), null);
-        });
-
-        it("should initialize with a given initial context (debug off)", () => {
+        it("should initialize with a given initial context", () => {
             const manager = new Hotkeys("editor", false);
-            assert.strictEqual(manager.getContext(), "editor");
+            assert.strictEqual(manager.getActiveContext(), "editor");
             manager.destroy();
         });
 
-        it("should log library initialization with context in debug mode", () => {
-            const consoleLogMock = mock.method(console, "log");
-            const manager = new Hotkeys("debugInitCtx", true);
-            const initLog = consoleLogMock.mock.calls.find(call => call.arguments[0].includes(`Library initialized. Initial context: "debugInitCtx"`));
-            assert.ok(initLog, "Library initialization log not found or incorrect.");
-            manager.destroy();
-            consoleLogMock.mock.restore();
+        it("should allow entering a new context, making it active", () => {
+            assert.strictEqual(keyManager.getActiveContext(), null);
+            keyManager.enterContext("modal");
+            assert.strictEqual(keyManager.getActiveContext(), "modal");
         });
 
-        it("should set and get context correctly", () => {
-            keyManager.setContext("modal");
-            assert.strictEqual(keyManager.getContext(), "modal");
-            keyManager.setContext(null);
-            assert.strictEqual(keyManager.getContext(), null);
+        it("should allow leaving a context, restoring the previous one and returning the one that was left", () => {
+            keyManager.enterContext("modal");
+            keyManager.enterContext("dropdown");
+            assert.strictEqual(keyManager.getActiveContext(), "dropdown");
+
+            const leftDropdown = keyManager.leaveContext();
+            assert.strictEqual(leftDropdown, "dropdown", `Should return "dropdown"`);
+            assert.strictEqual(keyManager.getActiveContext(), "modal");
+
+            const leftModal = keyManager.leaveContext();
+            assert.strictEqual(leftModal, "modal", `Should return "modal"`);
+            assert.strictEqual(keyManager.getActiveContext(), null);
         });
 
-        it("should log context change correctly when context is different (debug mode on)", () => {
-            const consoleLogMock = mock.method(console, "log");
-            keyManager.setDebugMode(true);
-            // Initial context is null for keyManager
-            consoleLogMock.mock.resetCalls(); // Clear "Debug mode enabled" log
+        it("should not allow leaving the base context and should return undefined", () => {
+            assert.strictEqual(keyManager.getActiveContext(), null);
 
-            keyManager.setContext("debug_test");
-            assert.ok(consoleLogMock.mock.calls.some(call => call.arguments[0].includes(`Context changed from "null" to "debug_test"`)), "Log for context change from null incorrect.");
-            assert.strictEqual(keyManager.getContext(), "debug_test");
+            const leftResult1 = keyManager.leaveContext(); // Attempt to leave
+            assert.strictEqual(leftResult1, undefined, "Should return undefined when leaving the base");
+            assert.strictEqual(keyManager.getActiveContext(), null);
+
+            keyManager.enterContext("modal");
+            keyManager.leaveContext();
+
+            const leftResult2 = keyManager.leaveContext(); // Second attempt
+            assert.strictEqual(leftResult2, undefined, "Should return undefined on second attempt");
+            assert.strictEqual(keyManager.getActiveContext(), null);
+        });
+
+        it("should log context changes in debug mode", () => {
+            const consoleLogMock = mock.method(console, "log");
+            const manager = new Hotkeys("base", true); // Debug on
+
+            consoleLogMock.mock.resetCalls(); // Clear init logs
+
+            manager.enterContext("modal");
+            assert.ok(consoleLogMock.mock.calls.some(call => call.arguments[0].includes(`Entering context: "modal"`)));
+            assert.ok(consoleLogMock.mock.calls.some(call => call.arguments[0].includes(`Active context changed to: modal`)));
+
             consoleLogMock.mock.resetCalls();
 
-            keyManager.setContext("another_test");
-            assert.ok(consoleLogMock.mock.calls.some(call => call.arguments[0].includes(`Context changed from "debug_test" to "another_test"`)), "Log for context change between non-null incorrect.");
-            assert.strictEqual(keyManager.getContext(), "another_test");
+            manager.leaveContext();
+            assert.ok(consoleLogMock.mock.calls.some(call => call.arguments[0].includes(`Leaving context: "modal"`)));
+            assert.ok(consoleLogMock.mock.calls.some(call => call.arguments[0].includes(`Active context changed to: base`)));
 
-            consoleLogMock.mock.restore();
-        });
-
-        it("should log context change from non-null to null (debug mode on)", () => {
-            const consoleLogMock = mock.method(console, "log");
-            keyManager.setContext("fromCtx"); // Initial context
-            keyManager.setDebugMode(true);
-            consoleLogMock.mock.resetCalls();
-
-            keyManager.setContext(null);
-            const logCall = consoleLogMock.mock.calls.find(call => call.arguments[0].includes(`Context changed from "fromCtx" to "null"`));
-            assert.ok(logCall, "Context change to null log not found or incorrect.");
-            assert.strictEqual(keyManager.getContext(), null);
-            consoleLogMock.mock.restore();
-        });
-
-        it(`should not call activeContext$.next and log "no change" if context is set to the same value (debug mode on)`, () => {
-            keyManager.setContext("sameCtx"); // Set initial context
-
-            const consoleLogMock = mock.method(console, "log");
-            keyManager.setDebugMode(true); // Enable debug for this test
-            consoleLogMock.mock.resetCalls(); // Clear "Debug mode enabled" log
-
-            // @ts-ignore: Accessing private member for test
-            const activeContextNextSpy = mock.method(keyManager["activeContext$"], "next");
-
-            keyManager.setContext("sameCtx"); // Attempt to set the same context
-
-            const noChangeLogCall = consoleLogMock.mock.calls.find(call => call.arguments[0].includes(`setContext called with the same context "sameCtx". No change made.`));
-            assert.ok(noChangeLogCall, "No-change log not found or incorrect for same context.");
-
-            const changedLogCall = consoleLogMock.mock.calls.find(call => call.arguments[0].includes(`Context changed from`));
-            assert.strictEqual(changedLogCall, undefined, "Context changed log should not appear for same context.");
-
-            assert.strictEqual(keyManager.getContext(), "sameCtx");
-            assert.strictEqual(activeContextNextSpy.mock.callCount(), 0, "activeContext$.next should not have been called.");
-
-            activeContextNextSpy.mock.restore();
-            consoleLogMock.mock.restore();
-        });
-
-        it("should not log or call next if context is set to the same value (debug mode off)", () => {
-            keyManager.setContext("sameCtxNoDebug"); // Set initial context
-            keyManager.setDebugMode(false);
-            // Ensure debug is off
-
-            const consoleLogMock = mock.method(console, "log");
-            // @ts-ignore: Accessing private member for test
-            const activeContextNextSpy = mock.method(keyManager["activeContext$"], "next");
-
-            keyManager.setContext("sameCtxNoDebug"); // Attempt to set the same context
-
-            assert.strictEqual(consoleLogMock.mock.callCount(), 0, "Console.log should not have been called with debug mode off.");
-            assert.strictEqual(activeContextNextSpy.mock.callCount(), 0, "activeContext$.next should not have been called.");
-            assert.strictEqual(keyManager.getContext(), "sameCtxNoDebug");
-
-            activeContextNextSpy.mock.restore();
-            consoleLogMock.mock.restore();
-        });
-
-        it(`should log "no change" if context is set to the same value (debug mode on)`, () => {
-            keyManager.setContext("sameCtx"); // Set initial context
-            const consoleLogMock = mock.method(console, "log");
-            keyManager.setDebugMode(true);
-            consoleLogMock.mock.resetCalls(); // Clear previous logs
-
-            keyManager.setContext("sameCtx"); // Attempt to set the same context
-
-            const noChangeLogCall = consoleLogMock.mock.calls.find(call => call.arguments[0].includes(`setContext called with the same context "sameCtx". No change made.`));
-            assert.ok(noChangeLogCall, "No-change log not found or incorrect for same context.");
-            const changedLogCall = consoleLogMock.mock.calls.find(call => call.arguments[0].includes("Context changed from"));
-            assert.strictEqual(changedLogCall, undefined, "Context changed log should not appear for same context.");
             consoleLogMock.mock.restore();
         });
 
@@ -221,83 +165,213 @@ describe("Hotkeys Library (Node.js Test Runner)", () => {
             consoleLogMock.mock.restore();
         });
 
-        describe("setContext return value", () => {
-            it("should return true when context is changed from null to a new value", () => {
-                assert.strictEqual(keyManager.getContext(), null, "Initial context should be null");
-                const result = keyManager.setContext("newContext");
-                assert.strictEqual(result, true, "setContext should return true for a change from null");
-                assert.strictEqual(keyManager.getContext(), "newContext");
-            });
-
-            it("should return true when context is changed from one value to another", () => {
-                keyManager.setContext("initialContext"); // Set a non-null initial context
-                const result = keyManager.setContext("changedContext");
-                assert.strictEqual(result, true, "setContext should return true for a value-to-value change");
-                assert.strictEqual(keyManager.getContext(), "changedContext");
-            });
-
-            it("should return false when context is set to the same value (non-null)", () => {
-                keyManager.setContext("sameContext");
-                const result = keyManager.setContext("sameContext");
-                assert.strictEqual(result, false, "setContext should return false for no change (non-null)");
-                assert.strictEqual(keyManager.getContext(), "sameContext");
-            });
-
-            it("should return true when context is changed from a value to null", () => {
-                keyManager.setContext("initialContext");
-                const result = keyManager.setContext(null);
-                assert.strictEqual(result, true, "setContext should return true for a change to null");
-                assert.strictEqual(keyManager.getContext(), null);
-            });
-
-            it("should return false when context is set to null and already null", () => {
-                keyManager.setContext(null); // Ensure context is null
-                const result = keyManager.setContext(null);
-                assert.strictEqual(result, false, "setContext should return false for no change (already null)");
-                assert.strictEqual(keyManager.getContext(), null);
-            });
-        });
-
-        describe("onContextChange$ observable", () => {
-            it("should emit initial context to new subscriber", () => {
-                const manager = new Hotkeys("initial", false);
-                const spy = createMockFn();
-                const sub = manager.onContextChange$.subscribe(spy);
-                assert.strictEqual(spy.calledCount, 1);
-                assert.strictEqual(spy.lastArgs[0], "initial");
-                sub.unsubscribe();
+        describe("activeContext$ observable", () => {
+            it("should emit the initial context to a new subscriber", async () => {
+                const manager = new Hotkeys("initial");
+                const activeContext = await firstValueFrom(manager.onContextChange$);
+                assert.strictEqual(activeContext, "initial");
                 manager.destroy();
             });
 
-            it("should emit when context changes", () => {
+            it("should emit when the active context changes via enter/leave", () => {
                 const spy = createMockFn();
-                const sub = keyManager.onContextChange$.subscribe(spy); // Subscribes, gets initial null
-                spy.mockClear(); // Clear initial emission
+                const sub = keyManager.onContextChange$.subscribe(spy);
+                assert.strictEqual(spy.calledCount, 1, "Did not emit initial context");
+                assert.strictEqual(spy.lastArgs[0], null);
 
-                assert.ok(keyManager.setContext("newContext"), "setContext should have returned true for change");
-                assert.strictEqual(spy.calledCount, 1, "onContextChange$ did not emit on first change");
+                keyManager.enterContext("newContext");
+                assert.strictEqual(spy.calledCount, 2, "Did not emit on enterContext");
                 assert.strictEqual(spy.lastArgs[0], "newContext");
 
-                assert.ok(keyManager.setContext("anotherContext"), "setContext should have returned true for second change");
-                assert.strictEqual(spy.calledCount, 2, "onContextChange$ did not emit on second change");
+                keyManager.enterContext("anotherContext");
+                assert.strictEqual(spy.calledCount, 3, "Did not emit on second enterContext");
                 assert.strictEqual(spy.lastArgs[0], "anotherContext");
 
-                assert.ok(keyManager.setContext(null), "setContext should have returned true for change to null");
-                assert.strictEqual(spy.calledCount, 3, "onContextChange$ did not emit on change to null");
+                keyManager.leaveContext();
+                assert.strictEqual(spy.calledCount, 4, "Did not emit on leaveContext");
+                assert.strictEqual(spy.lastArgs[0], "newContext");
+
+                keyManager.leaveContext();
+                assert.strictEqual(spy.calledCount, 5, "Did not emit on final leaveContext");
                 assert.strictEqual(spy.lastArgs[0], null);
+
                 sub.unsubscribe();
             });
 
-            it("should not emit if context is set to the same value", () => {
-                keyManager.setContext("testContext");
+            it("should not emit if the active context does not change (e.g. attempting to leave base context)", () => {
                 const spy = createMockFn();
-                const sub = keyManager.onContextChange$.subscribe(spy); // Subscribes, gets "testContext"
+                const sub = keyManager.onContextChange$.subscribe(spy); // Emits initial `null`
                 spy.mockClear(); // Clear initial emission
 
-                assert.strictEqual(keyManager.setContext("testContext"), false, "setContext should have returned false for no change"); // Set same context
-                assert.strictEqual(spy.calledCount, 0, "Observable should not emit if context value is the same.");
+                keyManager.leaveContext();
+                assert.strictEqual(spy.calledCount, 0, "Should not emit when leaving base context");
                 sub.unsubscribe();
             });
+        });
+
+        describe("Deprecated context methods", () => {
+             it("getContext should warn and return active context", () => {
+                keyManager.enterContext("test");
+                const ctx = keyManager.getContext();
+                assert.strictEqual(ctx, "test");
+                assert.ok(consoleWarnMock.mock.calls.some(c => c.arguments[0].includes(`"getContext" is deprecated`)));
+            });
+        });
+    });
+
+    describe("Context Management (Stack and Override)", () => {
+
+        describe("Context Stack (enter/leave)", () => {
+            it("should enter and leave contexts on the stack correctly", () => {
+                assert.strictEqual(keyManager.getActiveContext(), null);
+                keyManager.enterContext("modal");
+                assert.strictEqual(keyManager.getActiveContext(), "modal");
+                keyManager.enterContext("dropdown");
+                assert.strictEqual(keyManager.getActiveContext(), "dropdown");
+                const left1 = keyManager.leaveContext();
+                assert.strictEqual(left1, "dropdown");
+                assert.strictEqual(keyManager.getActiveContext(), "modal");
+                const left2 = keyManager.leaveContext();
+                assert.strictEqual(left2, "modal");
+                assert.strictEqual(keyManager.getActiveContext(), null);
+                const left3 = keyManager.leaveContext();
+                assert.strictEqual(left3, undefined);
+            });
+        });
+
+        describe("Context Override (setContext/restore)", () => {
+            it("setContext should set an override context and return a restore function", () => {
+                keyManager.enterContext("parent");
+                assert.strictEqual(keyManager.getActiveContext(), "parent");
+
+                const restore = keyManager.setContext("override");
+                assert.strictEqual(keyManager.getActiveContext(), "override");
+
+                restore();
+                assert.strictEqual(keyManager.getActiveContext(), "parent");
+            });
+
+            it("the override context should take precedence over the stack context", () => {
+                keyManager.enterContext("parent");
+                keyManager.setContext("override");
+
+                // Even if we change the stack, the override should remain active
+                keyManager.enterContext("child");
+                assert.strictEqual(keyManager.getActiveContext(), "override");
+
+                keyManager.leaveContext(); // leaves "child"
+                assert.strictEqual(keyManager.getActiveContext(), "override");
+            });
+
+            it("restoring the override should reveal the correct, current stack context", () => {
+                keyManager.enterContext("parent");
+                const restore = keyManager.setContext("override");
+
+                keyManager.enterContext("child");
+                assert.strictEqual(keyManager.getActiveContext(), "override");
+
+                restore();
+                assert.strictEqual(keyManager.getActiveContext(), "child", `Should reveal "child" which is top of the stack`);
+            });
+
+            it("should distinguish between restoring an override and setting an override to null", () => {
+                keyManager.enterContext("parent");
+                assert.strictEqual(keyManager.getActiveContext(), "parent");
+
+                // 1. Set an override to "null". The active context should be null.
+                const restoreNull = keyManager.setContext(null);
+                assert.strictEqual(keyManager.getActiveContext(), null, "Active context should be null due to override.");
+
+                // Leaving the stack context should have no effect on the active context, since the override is active.
+                keyManager.leaveContext(); // Tries to leave "parent"
+                assert.strictEqual(keyManager.getActiveContext(), null, "Active context should still be null after stack change.");
+
+                // Restore from the null override. Active context should revert to the top of the stack.
+                restoreNull();
+                assert.strictEqual(keyManager.getActiveContext(), null, `Active context should now be from the stack, which is "null".`);
+
+                // 2. Test restore from a non-null override
+                keyManager.enterContext("parent"); // Stack is [null, parent]
+                const restoreEditor = keyManager.setContext("editor");
+                assert.strictEqual(keyManager.getActiveContext(), "editor");
+
+                restoreEditor();
+                assert.strictEqual(keyManager.getActiveContext(), "parent");
+            });
+        });
+
+        describe("Active Context Logic and Shortcuts", () => {
+            it("should trigger shortcuts based on the override context", () => {
+                const overrideCb = createMockFn();
+                keyManager.addCombination({ id: "o", keys: "o", context: "override" }).subscribe(overrideCb);
+                const parentCb = createMockFn();
+                keyManager.addCombination({ id: "p", keys: "p", context: "parent" }).subscribe(parentCb);
+
+                keyManager.enterContext("parent");
+                keyManager.setContext("override");
+
+                dispatchKeyEvent(document, "p");
+                assert.strictEqual(parentCb.calledCount, 0);
+
+                dispatchKeyEvent(document, "o");
+                assert.strictEqual(overrideCb.calledCount, 1);
+            });
+
+            it("should trigger stack context shortcuts after override is restored", () => {
+                const overrideCb = createMockFn();
+                keyManager.addCombination({ id: "o", keys: "o", context: "override" }).subscribe(overrideCb);
+                const parentCb = createMockFn();
+                keyManager.addCombination({ id: "p", keys: "p", context: "parent" }).subscribe(parentCb);
+
+                keyManager.enterContext("parent");
+                const restore = keyManager.setContext("override");
+
+                dispatchKeyEvent(document, "p");
+                assert.strictEqual(parentCb.calledCount, 0);
+
+                restore(); // Restore context back to "parent"
+
+                dispatchKeyEvent(document, "p");
+                assert.strictEqual(parentCb.calledCount, 1);
+
+                dispatchKeyEvent(document, "o");
+                assert.strictEqual(overrideCb.calledCount, 0);
+            });
+        });
+
+    });
+
+    describe("Contextual Shortcut Triggering", () => {
+        it("should only trigger shortcut in its active context", () => {
+            keyManager.addCombination({ id: "test", keys: "a", context: "editor" }).subscribe(mockCallback);
+
+            // 1. Wrong context
+            keyManager.enterContext("modal");
+            dispatchKeyEvent(document, "a");
+            assert.strictEqual(mockCallback.calledCount, 0, `Should not trigger in "modal" context`);
+
+            // 2. No context (should not trigger)
+            keyManager.leaveContext(); // back to "null"
+            dispatchKeyEvent(document, "a");
+            assert.strictEqual(mockCallback.calledCount, 0, `Should not trigger in "null" context`);
+
+            // 3. Correct context
+            keyManager.enterContext("editor");
+            dispatchKeyEvent(document, "a");
+            assert.strictEqual(mockCallback.calledCount, 1, `Should trigger in "editor" context`);
+        });
+
+        it("global shortcut should trigger if no specific context is active", () => {
+            keyManager.addCombination({ id: "global", keys: "g" }).subscribe(mockCallback);
+            dispatchKeyEvent(document, "g");
+            assert.strictEqual(mockCallback.calledCount, 1, `Global shortcut should trigger in "null" context`);
+        });
+
+         it("global shortcut should trigger if a different specific context is active", () => {
+            keyManager.addCombination({ id: "global", keys: "g" }).subscribe(mockCallback);
+            keyManager.enterContext("editor");
+            dispatchKeyEvent(document, "g");
+            assert.strictEqual(mockCallback.calledCount, 1, "Global shortcut should trigger in any active context");
         });
     });
 
@@ -772,21 +846,23 @@ describe("Hotkeys Library (Node.js Test Runner)", () => {
         });
 
         it("should only trigger specific context callback when specific context is active", () => {
-            keyManager.setContext("editor");
+            keyManager.enterContext("editor");
             dispatchKeyEvent(document, Keys.G, "keydown", { ctrlKey: true });
 
             assert.strictEqual(specificCallback.calledCount, 1, "Specific callback should have been called");
             assert.strictEqual(globalCallback.calledCount, 0, "Global callback should NOT have been called");
         });
 
-        it("should only trigger global callback when no specific context is active (or context doesn't match)", () => {
-            keyManager.setContext(null); // No specific context
+        it("should only trigger global callback when no specific context is active", () => {
+            // Initial context is null
             dispatchKeyEvent(document, Keys.G, "keydown", { ctrlKey: true });
             assert.strictEqual(specificCallback.calledCount, 0, "Specific callback should NOT have been called");
             assert.strictEqual(globalCallback.calledCount, 1, "Global callback should have been called");
+        });
 
+        it("should trigger global callback when a non-matching specific context is active", () => {
             globalCallback.mockClear();
-            keyManager.setContext("anotherContext"); // Different specific context
+            keyManager.enterContext("anotherContext"); // Different specific context
             dispatchKeyEvent(document, Keys.G, "keydown", { ctrlKey: true });
             assert.strictEqual(specificCallback.calledCount, 0, `Specific callback should NOT have been called for "anotherContext"`);
             assert.strictEqual(globalCallback.calledCount, 1, `Global callback should have been called when in "anotherContext"`);

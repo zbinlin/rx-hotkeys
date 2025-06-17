@@ -1,6 +1,6 @@
 import {
     fromEvent, BehaviorSubject, EMPTY, Observable,
-    filter, map, bufferCount, withLatestFrom, tap, catchError, scan, merge, Subject, takeUntil, share,
+    filter, map, bufferCount, withLatestFrom, tap, catchError, scan, merge, Subject, takeUntil, share, distinctUntilChanged, combineLatest,
 } from "rxjs";
 import { type StandardKey, Keys, KeyAliases } from "./keys.js";
 
@@ -17,7 +17,7 @@ enum EmitStates {
     InProgress,
 }
 
-interface SequenceScanState { // As per your uploaded file
+interface SequenceScanState {
     matchedEvents: KeyboardEvent[];
     lastEventTime: number;
     emitState: EmitStates;
@@ -122,7 +122,7 @@ export interface KeySequenceConfig extends ShortcutConfigBase {
 
 type ShortcutConfig = KeyCombinationConfig | KeySequenceConfig;
 
-export interface ActiveShortcut { // Made exportable as per previous diff
+export interface ActiveShortcut {
     id: string;
     config: ShortcutConfig;
     terminator$: Subject<void>;
@@ -183,15 +183,28 @@ export class Hotkeys {
     private static readonly KEYUP_EVENT = "keyup";
     private static readonly LOG_PREFIX = "Hotkeys:";
 
+    // --- Sentinel value for no override ---
+    private static readonly NO_OVERRIDE = Symbol("No Hotkey Override");
+
     private keydownStreams: WeakMap<EventTarget, Observable<KeyboardEvent>>;
     private keyupStreams: WeakMap<EventTarget, Observable<KeyboardEvent>>;
-    private activeContext$: BehaviorSubject<string | null>;
     private activeShortcuts: Map<string, ActiveShortcut>;
     private debugMode: boolean;
 
+    // --- Separate states for stack and override ---
+    private contextStack$: BehaviorSubject<Array<string | null>>;
+    private overrideContext$: BehaviorSubject<string | null | typeof Hotkeys.NO_OVERRIDE>;
+
+    /**
+     * An Observable that emits the new active context name (or null) whenever it changes.
+     * The active context is the override context if one is set, otherwise it's the context
+     * from the top of the stack.
+     */
+    private readonly activeContext$: Observable<string | null>;
+
     /**
      * Creates an instance of Hotkeys.
-     * @param initialContext - Optional initial context name. Shortcuts will only trigger if their context matches this, or if they have no context defined.
+     * @param initialContext - Optional initial context name. This forms the base of the context stack.
      * @param debugMode - Optional. If true, debug messages will be logged to the console. Defaults to false.
      * @throws Error if not in a browser environment (i.e., `document` or `performance` is undefined).
      */
@@ -199,16 +212,39 @@ export class Hotkeys {
         this.debugMode = debugMode;
 
         if (typeof document === "undefined" || typeof performance === "undefined") {
-            throw new Error(`${Hotkeys.LOG_PREFIX} Hotkeys can only be used in a browser environment with global "document" and "performance" objects.`);
+            throw new Error(`${Hotkeys.LOG_PREFIX} Hotkeys can only be used in a browser environment.`);
         }
         this.keydownStreams = new WeakMap();
         this.keyupStreams = new WeakMap();
-        this.activeContext$ = new BehaviorSubject<string | null>(initialContext);
         this.activeShortcuts = new Map();
+
+        // The context stack is the source of truth for the active context.
+        this.contextStack$ = new BehaviorSubject<Array<string | null>>([initialContext]);
+        this.overrideContext$ = new BehaviorSubject<string | null | typeof Hotkeys.NO_OVERRIDE>(Hotkeys.NO_OVERRIDE);
+
+        // The public activeContext$ now correctly handles the sentinel value.
+        this.activeContext$ = combineLatest([
+            this.overrideContext$,
+            this.contextStack$.pipe(map(stack => stack.length > 0 ? stack[stack.length - 1] : null))
+        ]).pipe(
+            map(([overrideCtx, stackCtx]) => this._resolveActiveContext(overrideCtx, stackCtx)),
+            distinctUntilChanged(),
+        );
 
         if (this.debugMode) {
             console.log(`${Hotkeys.LOG_PREFIX} Library initialized. Initial context: "${initialContext}". Debug mode: ${debugMode}.`);
+            // Optional: Log context changes for debugging
+            this.activeContext$.subscribe(newContext => {
+                 console.log(`${Hotkeys.LOG_PREFIX} Active context changed to: ${newContext}`);
+            });
         }
+    }
+
+    /**
+     * Helper method to determine the active context based on override and stack.
+     */
+    private _resolveActiveContext(overrideCtx: string | null | typeof Hotkeys.NO_OVERRIDE, stackCtx: string | null): string | null {
+        return overrideCtx !== Hotkeys.NO_OVERRIDE ? overrideCtx : stackCtx;
     }
 
     /**
@@ -231,37 +267,86 @@ export class Hotkeys {
     }
 
     /**
-     * Sets the active context for shortcuts.
-     * Only shortcuts matching this context (or shortcuts with no specific context defined)
-     * will be active and can be triggered.
-     * @param contextName - The name of the context (e.g., "modal", "editor", "global").
-     * Pass `null` to activate shortcuts with no context or to deactivate context-specific shortcuts.
-     * @returns `true` if the context was changed, `false` if the new context was the same as the current one.
+     * Sets a temporary, high-priority override context that takes precedence over the context stack.
+     * @param contextName The override context to activate (can be a string or `null`).
+     * @returns A `restore` function that, when called, clears the override context, reverting to the stack.
      */
-    public setContext(contextName: string | null): boolean {
-        const currentContext = this.activeContext$.getValue();
-        if (currentContext === contextName) {
-            if (this.debugMode) {
-                // Optional: Log that no change is happening, or simply do nothing.
-                console.log(`${Hotkeys.LOG_PREFIX} setContext called with the same context "${contextName}". No change made.`);
-            }
-            return false; // Context was NOT updated
-        }
-
-        // If we reach here, the context is actually changing.
+    public setContext(contextName: string | null): () => void {
         if (this.debugMode) {
-            console.log(`${Hotkeys.LOG_PREFIX} Context changed from "${currentContext}" to "${contextName}".`);
+            console.log(`${Hotkeys.LOG_PREFIX} Setting override context to: "${contextName}".`);
         }
-        this.activeContext$.next(contextName);
-        return true; // Context WAS updated
+        this.overrideContext$.next(contextName);
+
+        const restore = () => {
+            // Only clear the override if it's still the one we set.
+            if (this.overrideContext$.getValue() === contextName) {
+                if (this.debugMode) {
+                    console.log(`${Hotkeys.LOG_PREFIX} Restoring/clearing override context from: "${contextName}".`);
+                }
+                // Restore now sets the special "NO_OVERRIDE" value.
+                this.overrideContext$.next(Hotkeys.NO_OVERRIDE);
+            }
+        };
+        return restore;
     }
 
     /**
-     * Gets the current active context.
+     * @deprecated Rename to `getActiveContext`
+     * Gets the current active context, considering any override.
      * @returns The current context name as a string, or `null` if no context is set.
      */
     public getContext(): string | null {
-        return this.activeContext$.getValue();
+        console.warn(`${Hotkeys.LOG_PREFIX} "getContext" is deprecated. Use "getActiveContext()" or subscribe to "onContextChange$" instead.`);
+        return this.getActiveContext();
+    }
+
+    /**
+     * Gets the current active context, considering any override.
+     * @returns The current context name as a string, or `null` if no context is set.
+     */
+    public getActiveContext(): string | null {
+        const overrideCtx = this.overrideContext$.getValue();
+        const stack = this.contextStack$.getValue();
+        const stackCtx = stack.length > 0 ? stack[stack.length - 1] : null;
+        // Also uses the abstracted helper method.
+        return this._resolveActiveContext(overrideCtx, stackCtx);
+    }
+
+    /**
+     * Pushes a new context onto the context stack. It will become active if no override context is set.
+     * @param contextName The name of the context to enter (e.g., "modal", "editor").
+     */
+    public enterContext(contextName: string | null): void {
+        const currentStack = this.contextStack$.getValue();
+        const newStack = [...currentStack, contextName];
+        if (this.debugMode) {
+            console.log(`${Hotkeys.LOG_PREFIX} Entering context: "${contextName}". New stack: [${newStack.join(", ")}]`);
+        }
+        this.contextStack$.next(newStack);
+    }
+
+    /**
+     * Pops the current context from the stack.
+     * @returns The context that was just left from the stack, or `undefined` if at the base.
+     */
+    public leaveContext(): string | null | undefined {
+        const currentStack = this.contextStack$.getValue();
+        if (currentStack.length <= 1) {
+            if (this.debugMode) {
+                console.log(`${Hotkeys.LOG_PREFIX} Attempted to leave the base stack context. No change made.`);
+            }
+            return undefined; // Nothing was left
+        }
+
+        const leavingContext = currentStack[currentStack.length - 1];
+        const newStack = currentStack.slice(0, -1);
+
+        if (this.debugMode) {
+            console.log(`${Hotkeys.LOG_PREFIX} Leaving context: "${leavingContext}". New stack: [${newStack.join(", ")}]`);
+        }
+
+        this.contextStack$.next(newStack);
+        return leavingContext;
     }
 
     /**
@@ -292,10 +377,6 @@ export class Hotkeys {
 
     /**
      * An Observable that emits the new context name (or null) whenever the active context changes.
-     * This allows external parts of the application to react to context transitions.
-     *
-     * Note: This observable benefits from the distinct check within the `setContext` method,
-     * meaning it will only emit when the context value actually changes.
      *
      * @example
      * ```typescript
@@ -309,7 +390,7 @@ export class Hotkeys {
      * ```
      */
     public get onContextChange$(): Observable<string | null> {
-        return this.activeContext$.asObservable();
+        return this.activeContext$;
     }
 
     /**
@@ -353,7 +434,7 @@ export class Hotkeys {
             let altKeyConfig: boolean | undefined;
             let shiftKeyConfig: boolean | undefined;
             let metaKeyConfig: boolean | undefined;
-            
+
             // This logic is now simplified because _parseKeyTrigger handles normalization
             const parsed = this._parseKeyTrigger(keyInput, shortcutConfig.id);
             if (!parsed) continue;
@@ -608,20 +689,20 @@ export class Hotkeys {
                 }),
                 filter(event => compareKey(event.key, configuredMainKey)),
                 // New filter for priority: Specific context > Global context
-                filter(event => {
+                withLatestFrom(this.activeContext$),
+                filter(([event, activeCtx]) => {
                     if (context != null || strict) { // This shortcut is NOT global or strict
                         return true;
                     }
                     // This shortcut IS global. Check for specific overrides.
-                    const currentSpecificContext = this.activeContext$.getValue();
-                    if (currentSpecificContext == null) { // No specific context active
+                    if (activeCtx == null) { // No specific context active
                         return true;
                     }
 
                     for (const [, otherAS] of this.activeShortcuts) {
                         if (otherAS.config.id !== id &&
                             "keys" in otherAS.config &&
-                            otherAS.config.context === currentSpecificContext &&
+                            otherAS.config.context === activeCtx &&
                             this._shortcutMatchesEvent(otherAS.config, event)) {
                             if (this.debugMode) {
                                 console.log(`${Hotkeys.LOG_PREFIX} Global shortcut "${id}" (key: "${event.key}") suppressed by specific context shortcut "${otherAS.config.id}".`);
@@ -630,7 +711,8 @@ export class Hotkeys {
                         }
                     }
                     return true; // Global can proceed
-                })
+                }),
+                map(([event]) => event)
             );
             observables.push(stream);
         }
@@ -794,19 +876,19 @@ export class Hotkeys {
 
         const terminator$ = new Subject<void>();
         const finalShortcutWithPriority$ = shortcut$.pipe(
-            filter((completedEvents: KeyboardEvent[]) => {
+            withLatestFrom(this.activeContext$),
+            filter(([_completedEvents, activeCtx]) => {
                 if (context != null || strict) { // This sequence is NOT global or strict
                     return true;
                 }
                 // This sequence IS global. Check for specific overrides.
-                const currentSpecificContext = this.activeContext$.getValue();
-                if (currentSpecificContext == null) { // No specific context active
+                if (activeCtx == null) { // No specific context active
                     return true;
                 }
                 for (const [, otherAS] of this.activeShortcuts) {
                     if (otherAS.config.id !== id &&
                         "sequence" in otherAS.config &&
-                        otherAS.config.context === currentSpecificContext &&
+                        otherAS.config.context === activeCtx &&
                         this._areSequencesIdentical(configuredSequence, typeof otherAS.config.sequence === "string" ? this._parseSequenceString(otherAS.config.sequence) : otherAS.config.sequence)) {
                         if (this.debugMode) {
                             console.log(`${Hotkeys.LOG_PREFIX} Global sequence shortcut "${id}" suppressed by identical specific-context shortcut "${otherAS.config.id}".`);
@@ -816,6 +898,7 @@ export class Hotkeys {
                 }
                 return true; // Global sequence can proceed
             }),
+            map(([events]) => events),
             tap((events: KeyboardEvent[]) => {
                 if (this.debugMode) {
                     const timeoutInfo = (sequenceTimeoutMs && sequenceTimeoutMs > 0) ? ` (with timeout logic)` : ` (no timeout logic)`;
@@ -894,7 +977,7 @@ export class Hotkeys {
             shortcut.terminator$.complete();
         });
         this.activeShortcuts.clear();
-        this.activeContext$.complete();
+        this.contextStack$.complete();
         if (this.debugMode) console.log(`${Hotkeys.LOG_PREFIX} Library destroyed.`);
     }
 }

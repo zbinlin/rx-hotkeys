@@ -508,6 +508,34 @@ describe("Hotkeys Library (Node.js Test Runner)", () => {
             assert.strictEqual(mockCallback.calledCount, 3, "Unrelated key C triggered");
         });
 
+        it("should support a mixed array of triggers including combination strings", () => {
+            const config: Omit<KeyCombinationConfig, "callback"> = {
+                id: "mixedTriggerCombo",
+                keys: [
+                    "ctrl+s",                             // 1. Combination String
+                    Keys.F1,                              // 2. StandardKey
+                    { key: Keys.X, altKey: true }         // 3. KeyCombinationTrigger Object
+                ]
+            };
+            keyManager.addCombination(config).subscribe(mockCallback);
+
+            // Test trigger 1: Combination String
+            dispatchKeyEvent(document, "s", "keydown", { ctrlKey: true });
+            assert.strictEqual(mockCallback.calledCount, 1, `Trigger "ctrl+s" (string) failed`);
+
+            // Test trigger 2: StandardKey
+            dispatchKeyEvent(document, "F1");
+            assert.strictEqual(mockCallback.calledCount, 2, `Trigger "F1" (StandardKey) failed`);
+
+            // Test trigger 3: KeyCombinationTrigger Object
+            dispatchKeyEvent(document, "x", "keydown", { altKey: true });
+            assert.strictEqual(mockCallback.calledCount, 3, `Trigger "{ key: X, altKey: true }" (Object) failed`);
+
+            // Test a non-matching key
+            dispatchKeyEvent(document, "y");
+            assert.strictEqual(mockCallback.calledCount, 3, "An unrelated key triggered the callback unexpectedly");
+        });
+
         it(`should return an empty observable and warn if "keys" array is empty`, () => {
             const config: Omit<KeyCombinationConfig, "callback"> = { id: "emptyKeysArray", keys: [] };
             const combo$ = keyManager.addCombination(config);

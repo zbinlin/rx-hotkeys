@@ -57,7 +57,7 @@ interface ShortcutConfigBase {
  * Defines a single key trigger, which can be a StandardKey (for simple presses like "Escape")
  * or an object specifying the main key and its modifiers (e.g., { key: Keys.S, ctrlKey: true }).
  */
-type KeyCombinationTrigger = {
+export type KeyCombinationTrigger = {
     /**
      * The main key for the combination.
      * This MUST be a value from the exported `Keys` object
@@ -73,7 +73,7 @@ type KeyCombinationTrigger = {
     altKey?: boolean;
     shiftKey?: boolean;
     metaKey?: boolean;
-} | StandardKey;
+} | StandardKey | string;
 
 
 export interface KeyCombinationConfig extends ShortcutConfigBase {
@@ -94,7 +94,7 @@ export interface KeyCombinationConfig extends ShortcutConfigBase {
      * To define multiple triggers for the same action:
      * Example: `keys: [Keys.Enter, { key: Keys.Space, ctrlKey: true }]`
      */
-    keys: KeyCombinationTrigger | KeyCombinationTrigger[] | string;
+    keys: KeyCombinationTrigger | KeyCombinationTrigger[];
 }
 
 export interface KeySequenceConfig extends ShortcutConfigBase {
@@ -646,13 +646,20 @@ export class Hotkeys {
             console.warn(`${Hotkeys.LOG_PREFIX} Shortcut "${id}" has both a context(${context}) and the "strict" flag. The "strict" flag will be ignored.`);
         }
 
-        let keyTriggers: KeyCombinationTrigger[];
-        if (typeof keys === "string" && keys.length > 1 && keys.includes("+")) {
-            keyTriggers = this._parseCombinationString(keys);
-        } else {
-            keyTriggers = Array.isArray(keys) ? keys : [keys as KeyCombinationTrigger];
-        }
+        const keyInputs = Array.isArray(keys) ? keys : [keys];
+        const keyTriggers: KeyCombinationTrigger[] = [];
 
+        for (const input of keyInputs) {
+            // Check if the input is a combination string (e.g., "ctrl+s")
+            if (typeof input === "string" && input.length > 1 && input.includes("+")) {
+                // Parse the string and add the resulting trigger objects to our list.
+                // _parseCombinationString already returns KeyCombinationTrigger[]
+                keyTriggers.push(...this._parseCombinationString(input));
+            } else {
+                // Otherwise, it's a StandardKey ("A"), or a KeyCombinationTrigger object.
+                keyTriggers.push(input as KeyCombinationTrigger);
+            }
+        }
         if (keyTriggers.length === 0) {
             console.warn(`${Hotkeys.LOG_PREFIX} "keys" definition for combination shortcut "${id}" is empty or invalid. Shortcut not added.`);
             return EMPTY;

@@ -13,7 +13,7 @@ export type SequenceHookOptions = Omit<KeySequenceConfig, "id" | "sequence" | "c
 // Internal hook to handle the common logic for both combination and sequence hotkeys
 function useBaseHotkey(
     type: "combination" | "sequence",
-    keyOrSequence: string | string[],
+    keyOrSequence: KeyCombinationConfig["keys"] | KeySequenceConfig["sequence"],
     callback: (event: KeyboardEvent) => void,
     options?: HotkeyHookOptions | SequenceHookOptions,
 ) {
@@ -78,7 +78,7 @@ function useBaseHotkey(
  * }
  */
 export function useHotkeys(
-    keys: string | string[],
+    keys: KeyCombinationConfig["keys"],
     callback: (event: KeyboardEvent) => void,
     options?: HotkeyHookOptions,
 ): void {
@@ -99,7 +99,7 @@ export function useHotkeys(
  * }, { sequenceTimeoutMs: 1000 });
  */
 export function useSequence(
-    sequence: string | string[],
+    sequence: KeySequenceConfig["sequence"],
     callback: (event: KeyboardEvent) => void,
     options?: SequenceHookOptions,
 ): void {

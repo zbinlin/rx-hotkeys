@@ -263,7 +263,7 @@ export function MyModal({ onClose }) {
   useScopedHotkeysContext('modal');
 
   // This hotkey will only be active when the 'modal' context is active.
-  useHotkeys('escape', onClose, { context: 'modal' });
+  useHotkeys("escape", onClose, { context: 'modal' });
 
   return (
     <div className="modal">
@@ -352,14 +352,14 @@ A React component that provides the Hotkeys instance to its children.
 `useHotkeys(keys, callback, options?)`
 
 A React hook to register a key combination.
-* `keys: string | string[]`: The shortcut definition (e.g., `'ctrl+s'`).
+* `keys: KeyCombinationConfig["keys"]`: The shortcut definition (e.g., `'ctrl+s'`).
 * `callback: (event: KeyboardEvent) => void`: The function to execute.
 * `options?: HotkeyHookOptions`: Optional config for `preventDefault`, `context`, `target`, etc.
 
 `useSequence(sequence, callback, options?)`
 
 A React hook to register a key sequence.
-* `sequence: string | string[]`: The sequence definition (e.g., `'g -> i'`).
+* `sequence: KeySequenceConfig["sequence"]`: The sequence definition (e.g., `'g -> i'`).
 * `callback: (event: KeyboardEvent) => void`: The function to execute.
 * `options?: SequenceHookOptions`: Optional config for `preventDefault`, `context`, etc.
 
@@ -375,7 +375,7 @@ A hook to get direct access to the `Hotkeys` manager instance.
 #### `KeyCombinationConfig`
 
 * `id: string` (required): Unique identifier for the shortcut.
-* `keys: string | KeyCombinationTrigger | KeyCombinationTrigger[]` (required): Defines the key(s). Can be a string (`"ctrl+s"`), a shorthand `StandardKey` (`Keys.Escape`), an object (`{ key: Keys.S, ctrlKey: true }`), or an array of these.
+* `keys: KeyCombinationTrigger | KeyCombinationTrigger[]` (required): Defines the key(s). Can be a string (`"ctrl+s"`), a shorthand `StandardKey` (`Keys.Escape`), an object (`{ key: Keys.S, ctrlKey: true }`), or an array of these.
 * `context?: string | null`: Specifies the context in which this shortcut is active. If `null` or `undefined`, it's a global shortcut.
 * `preventDefault?: boolean`: If `true`, `event.preventDefault()` will be called when the shortcut triggers. Defaults to `false`.
 * `description?: string`: An optional description for the shortcut (e.g., for help menus).
@@ -394,7 +394,19 @@ A hook to get direct access to the `Hotkeys` manager instance.
 * `strict?: boolean` (optional): If `true` and the shortcut has no `context`, it will only fire when no other context is active.
 * `target?: HTMLElement` (optional): The DOM element to attach the listener to. Defaults to `document`.
 * `event?: "keydown" | "keyup"` (optional): The keyboard event to listen for. Defaults to `"keydown"`.
-* `callback?: (event: KeyboardEvent) => void` (**@deprecated**): This property is deprecated. Subscribe to the `Observable` returned by `addSequence` instead.
+
+```
+type KeyCombinationTrigger = {
+    key: StandardKey;
+    ctrlKey?: boolean;
+    altKey?: boolean;
+    shiftKey?: boolean;
+    metaKey?: boolean;
+} | StandardKey | string;
+```
+
+*
+*
 
 ## Key Matching & Normalization
 

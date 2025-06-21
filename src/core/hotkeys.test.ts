@@ -540,7 +540,7 @@ describe("Hotkeys Library (Node.js Test Runner)", () => {
             const config: Omit<KeyCombinationConfig, "callback"> = { id: "emptyKeysArray", keys: [] };
             const combo$ = keyManager.addCombination(config);
             combo$.subscribe(mockCallback);
-            assert.ok(consoleWarnMock.mock.calls.some(call => call.arguments[0].includes(`"keys" definition for combination shortcut "emptyKeysArray" is empty`)));
+            assert.ok(consoleErrorMock.mock.calls.some(call => call.arguments[0].includes(`"keys" definition for combination shortcut "emptyKeysArray" is empty`)));
             dispatchKeyEvent(document, "a");
             assert.strictEqual(mockCallback.calledCount, 0);
         });
@@ -634,8 +634,8 @@ describe("Hotkeys Library (Node.js Test Runner)", () => {
                 const config: Omit<KeyCombinationConfig, "callback"> = { id: "emptyArrayShorthand", keys: [] };
                 const combo$ = keyManager.addCombination(config);
                 combo$.subscribe(mockCallback);
-                assert.strictEqual(consoleWarnMock.mock.calls.length, 1);
-                assert.ok(consoleWarnMock.mock.calls[0].arguments[0].includes(`"keys" definition for combination shortcut "emptyArrayShorthand" is empty or invalid. Shortcut not added.`));
+                assert.strictEqual(consoleErrorMock.mock.calls.length, 1);
+                assert.ok(consoleErrorMock.mock.calls[0].arguments[0].includes(`"keys" definition for combination shortcut "emptyArrayShorthand" is empty or invalid. Shortcut not added.`));
             });
 
             it("should return an empty observable and warn if shorthand key is an empty string in array", () => {
@@ -1088,8 +1088,8 @@ describe("Hotkeys Library (Node.js Test Runner)", () => {
             const config: Omit<KeySequenceConfig, "callback"> = { id: "emptySeq", sequence: [] };
             const seq$ = keyManager.addSequence(config);
             seq$.subscribe(mockCallback);
-            assert.strictEqual(consoleWarnMock.mock.calls.length, 1);
-            assert.ok(consoleWarnMock.mock.calls[0].arguments[0].includes(`Sequence for shortcut "emptySeq" is empty`));
+            assert.strictEqual(consoleErrorMock.mock.calls.length, 1);
+            assert.ok(consoleErrorMock.mock.calls[0].arguments[0].includes(`Sequence for shortcut "emptySeq" is empty`));
             dispatchKeyEvent(document, "a");
             assert.strictEqual(mockCallback.calledCount, 0);
         });
@@ -1098,8 +1098,9 @@ describe("Hotkeys Library (Node.js Test Runner)", () => {
             const config: Omit<KeySequenceConfig, "callback"> = { id: "invalidKeyInSeq", sequence: [Keys.A, "" as any, Keys.C] };
             const seq$ = keyManager.addSequence(config);
             seq$.subscribe(mockCallback);
+            console.log(consoleErrorMock.mock.calls);
             assert.strictEqual(consoleWarnMock.mock.calls.length, 1, "console.warn was not called for invalid key in sequence");
-            assert.ok(consoleWarnMock.mock.calls[0].arguments[0].includes(`Invalid key in sequence for shortcut "invalidKeyInSeq"`));
+            assert.ok(consoleWarnMock.mock.calls[0].arguments[0].includes(`Could not parse key: "" in sequence for shortcut "invalidKeyInSeq"`));
         });
 
 

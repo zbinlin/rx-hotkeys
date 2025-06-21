@@ -75,6 +75,18 @@ export type KeyCombinationTrigger = {
     metaKey?: boolean;
 } | StandardKey | string;
 
+/**
+ * A fully parsed, canonical representation of a single key trigger.
+ * All modifier keys are explicitly defined as booleans.
+ */
+interface ParsedTrigger {
+    key: StandardKey;
+    ctrlKey: boolean;
+    altKey: boolean;
+    shiftKey: boolean;
+    metaKey: boolean;
+}
+
 
 export interface KeyCombinationConfig extends ShortcutConfigBase {
     /**
@@ -122,6 +134,7 @@ export interface ActiveShortcut {
     id: string;
     config: ShortcutConfig;
     terminator$: Subject<void>;
+    parsedTriggers?: ParsedTrigger[];
 }
 
 // --- Helper function to compare keys ---
@@ -241,6 +254,50 @@ export class Hotkeys {
      */
     private _resolveActiveContext(overrideCtx: string | null | typeof Hotkeys.NO_OVERRIDE, stackCtx: string | null): string | null {
         return overrideCtx !== Hotkeys.NO_OVERRIDE ? overrideCtx : stackCtx;
+    }
+
+    private _normalizeAndParseTriggers(keys: KeyCombinationConfig["keys"], shortcutId: string): ParsedTrigger[] {
+        const keyInputs = Array.isArray(keys) ? keys : [keys];
+        const parsedTriggers: ParsedTrigger[] = [];
+
+        for (const input of keyInputs) {
+            let triggersToParse: KeyCombinationTrigger[] = [];
+            if (typeof input === "string" && input.length > 1 && input.includes("+")) {
+                triggersToParse.push(...this._parseCombinationString(input));
+            } else {
+                triggersToParse.push(input as KeyCombinationTrigger);
+            }
+
+            for (const trigger of triggersToParse) {
+                const parsed = this._parseKeyTrigger(trigger, shortcutId);
+                if (parsed) {
+                    parsedTriggers.push({
+                        key: parsed.configuredMainKey,
+                        ctrlKey: !!parsed.ctrlKeyConfig,
+                        altKey: !!parsed.altKeyConfig,
+                        shiftKey: !!parsed.shiftKeyConfig,
+                        metaKey: !!parsed.metaKeyConfig,
+                    });
+                }
+            }
+        }
+        return parsedTriggers;
+    }
+
+    private _normalizeSequence(sequence: KeySequenceConfig["sequence"], shortcutId: string): StandardKey[] | null {
+        const keyInputs = typeof sequence === "string" ? sequence.split("->") : sequence;
+        const results: StandardKey[] = [];
+
+        for (const keyStr of keyInputs) {
+            const finalKey = normalizeKey(typeof keyStr === "string" && keyStr.length > 1 ? keyStr.trim() : keyStr);
+            if (finalKey) {
+                results.push(finalKey);
+            } else {
+                console.warn(`${Hotkeys.LOG_PREFIX} Could not parse key: "${keyStr}" in sequence for shortcut "${shortcutId}".`);
+                return null; // Fail fast if any key is invalid
+            }
+        }
+        return results;
     }
 
     /**
@@ -414,48 +471,21 @@ export class Hotkeys {
      * @param event The KeyboardEvent to match against.
      * @returns True if the shortcutConfig matches the event, false otherwise.
      */
-    private _shortcutMatchesEvent(shortcutConfig: KeyCombinationConfig, event: KeyboardEvent): boolean {
-        // Use the same robust heuristic here for consistency ---
-        let keyTriggers: KeyCombinationTrigger[];
-        const configKeys = shortcutConfig.keys;
-        if (typeof configKeys === "string" && configKeys.length > 1 && configKeys.includes("+")) {
-            keyTriggers = this._parseCombinationString(configKeys);
-        } else {
-            keyTriggers = Array.isArray(configKeys) ? configKeys : [configKeys as KeyCombinationTrigger];
-        }
-
-        for (const keyInput of keyTriggers) {
-            let configuredMainKey: StandardKey;
-            let ctrlKeyConfig: boolean | undefined;
-            let altKeyConfig: boolean | undefined;
-            let shiftKeyConfig: boolean | undefined;
-            let metaKeyConfig: boolean | undefined;
-
-            // This logic is now simplified because _parseKeyTrigger handles normalization
-            const parsed = this._parseKeyTrigger(keyInput, shortcutConfig.id);
-            if (!parsed) continue;
-
-            configuredMainKey = parsed.configuredMainKey;
-            ctrlKeyConfig = parsed.ctrlKeyConfig;
-            altKeyConfig = parsed.altKeyConfig;
-            shiftKeyConfig = parsed.shiftKeyConfig;
-            metaKeyConfig = parsed.metaKeyConfig;
-
-            const keyMatch = compareKey(event.key, configuredMainKey);
+    private _shortcutMatchesEvent(parsedTriggers: ParsedTrigger[], event: KeyboardEvent): boolean {
+        // It no longer does any parsing. It just compares against the pre-parsed triggers.
+        for (const trigger of parsedTriggers) {
+            const keyMatch = compareKey(event.key, trigger.key);
             if (!keyMatch) continue;
 
-            const ctrlMatch = (ctrlKeyConfig === undefined) ? true : (event.ctrlKey === ctrlKeyConfig);
-            const altMatch = (altKeyConfig === undefined) ? true : (event.altKey === altKeyConfig);
-            const shiftMatch = (shiftKeyConfig === undefined) ? true : (event.shiftKey === shiftKeyConfig);
-            const metaMatch = (metaKeyConfig === undefined) ? true : (event.metaKey === metaKeyConfig);
-
-            if (ctrlMatch && altMatch && shiftMatch && metaMatch) {
+            if (event.ctrlKey === trigger.ctrlKey &&
+                event.altKey === trigger.altKey &&
+                event.shiftKey === trigger.shiftKey &&
+                event.metaKey === trigger.metaKey) {
                 return true;
             }
         }
         return false;
     }
-
 
     private filterByContext(source$: Observable<KeyboardEvent>, context: string | null | undefined, strict: boolean): Observable<KeyboardEvent> {
         return source$.pipe(
@@ -479,7 +509,8 @@ export class Hotkeys {
         config: ShortcutConfig,
         terminator$: Subject<void>,
         type: ShortcutTypes,
-        detailsForLog: string
+        detailsForLog: string,
+        parsedTriggers?: ParsedTrigger[]
     ): void {
         const existingShortcut = this.activeShortcuts.get(config.id);
         if (existingShortcut) {
@@ -487,7 +518,7 @@ export class Hotkeys {
             existingShortcut.terminator$.next();
             existingShortcut.terminator$.complete();
         }
-        this.activeShortcuts.set(config.id, { id: config.id, config, terminator$ });
+        this.activeShortcuts.set(config.id, { id: config.id, config, terminator$, parsedTriggers });
         if (this.debugMode) {
             console.log(`${Hotkeys.LOG_PREFIX} ${type} shortcut "${config.id}" added. ${detailsForLog}, Context: ${config.context ?? "any"}`);
         }
@@ -506,7 +537,6 @@ export class Hotkeys {
         altKeyConfig?: boolean;
         shiftKeyConfig?: boolean;
         metaKeyConfig?: boolean;
-        logDetails: string;
     } | null {
         if (typeof keyInput === "string") {
             const finalKey = normalizeKey(keyInput);
@@ -520,7 +550,6 @@ export class Hotkeys {
                 altKeyConfig: false,
                 shiftKeyConfig: false,
                 metaKeyConfig: false,
-                logDetails: `key: "${finalKey}" (no mods)`,
             };
         } else {
             if (!keyInput.key || typeof keyInput.key !== "string" || (keyInput.key as string) === "") {
@@ -528,31 +557,12 @@ export class Hotkeys {
                 return null;
             }
 
-            const hasModifiers = keyInput.ctrlKey || keyInput.altKey || keyInput.shiftKey || keyInput.metaKey;
-
-            if (!hasModifiers) {
-                 return {
-                    configuredMainKey: keyInput.key,
-                    ctrlKeyConfig: false,
-                    altKeyConfig: false,
-                    shiftKeyConfig: false,
-                    metaKeyConfig: false,
-                    logDetails: `key: "${keyInput.key}" (no mods)`,
-                };
-            }
-
-            const logDetails = `key: "${keyInput.key}"` +
-                (keyInput.ctrlKey ? `, ctrl: true` : "") +
-                (keyInput.altKey ? `, alt: true` : "") +
-                (keyInput.shiftKey ? `, shift: true` : "") +
-                (keyInput.metaKey ? `, meta: true` : "");
             return {
                 configuredMainKey: keyInput.key,
                 ctrlKeyConfig: keyInput.ctrlKey,
                 altKeyConfig: keyInput.altKey,
                 shiftKeyConfig: keyInput.shiftKey,
                 metaKeyConfig: keyInput.metaKey,
-                logDetails,
             };
         }
     }
@@ -646,47 +656,25 @@ export class Hotkeys {
             console.warn(`${Hotkeys.LOG_PREFIX} Shortcut "${id}" has both a context(${context}) and the "strict" flag. The "strict" flag will be ignored.`);
         }
 
-        const keyInputs = Array.isArray(keys) ? keys : [keys];
-        const keyTriggers: KeyCombinationTrigger[] = [];
+        const parsedTriggers = this._normalizeAndParseTriggers(keys, id);
 
-        for (const input of keyInputs) {
-            // Check if the input is a combination string (e.g., "ctrl+s")
-            if (typeof input === "string" && input.length > 1 && input.includes("+")) {
-                // Parse the string and add the resulting trigger objects to our list.
-                // _parseCombinationString already returns KeyCombinationTrigger[]
-                keyTriggers.push(...this._parseCombinationString(input));
-            } else {
-                // Otherwise, it's a StandardKey ("A"), or a KeyCombinationTrigger object.
-                keyTriggers.push(input as KeyCombinationTrigger);
-            }
-        }
-        if (keyTriggers.length === 0) {
-            console.warn(`${Hotkeys.LOG_PREFIX} "keys" definition for combination shortcut "${id}" is empty or invalid. Shortcut not added.`);
+        if (parsedTriggers.length === 0) {
+            console.error(`${Hotkeys.LOG_PREFIX} "keys" definition for combination shortcut "${id}" is empty or invalid. Shortcut not added.`);
             return EMPTY;
         }
 
         const sourceStream$ = this._getEventStream(eventType, target);
         const observables: Observable<KeyboardEvent>[] = [];
-        const logParts: string[] = [];
 
-        for (const keyInput of keyTriggers) {
-            const parsedTrigger = this._parseKeyTrigger(keyInput, id);
-            if (!parsedTrigger) {
-                return EMPTY;
-            }
-
-            const { configuredMainKey, ctrlKeyConfig, altKeyConfig, shiftKeyConfig, metaKeyConfig, logDetails } = parsedTrigger;
-            logParts.push(`{ ${logDetails} }`);
-
+        for (const trigger of parsedTriggers) {
             const stream = this.filterByContext(sourceStream$, context, strict).pipe(
                 filter(event => {
-                    const ctrlMatch = (ctrlKeyConfig === undefined) ? true : (event.ctrlKey === ctrlKeyConfig);
-                    const altMatch = (altKeyConfig === undefined) ? true : (event.altKey === altKeyConfig);
-                    const shiftMatch = (shiftKeyConfig === undefined) ? true : (event.shiftKey === shiftKeyConfig);
-                    const metaMatch = (metaKeyConfig === undefined) ? true : (event.metaKey === metaKeyConfig);
-                    return ctrlMatch && altMatch && shiftMatch && metaMatch;
+                   return event.ctrlKey === trigger.ctrlKey &&
+                          event.altKey === trigger.altKey &&
+                          event.shiftKey === trigger.shiftKey &&
+                          event.metaKey === trigger.metaKey;
                 }),
-                filter(event => compareKey(event.key, configuredMainKey)),
+                filter(event => compareKey(event.key, trigger.key)),
                 // New filter for priority: Specific context > Global context
                 withLatestFrom(this.activeContext$),
                 filter(([event, activeCtx]) => {
@@ -702,7 +690,7 @@ export class Hotkeys {
                         if (otherAS.config.id !== id &&
                             "keys" in otherAS.config &&
                             otherAS.config.context === activeCtx &&
-                            this._shortcutMatchesEvent(otherAS.config, event)) {
+                            this._shortcutMatchesEvent(otherAS.parsedTriggers ?? [], event)) {
                             if (this.debugMode) {
                                 console.log(`${Hotkeys.LOG_PREFIX} Global shortcut "${id}" (key: "${event.key}") suppressed by specific context shortcut "${otherAS.config.id}".`);
                             }
@@ -724,9 +712,22 @@ export class Hotkeys {
 
         const terminator$ = new Subject<void>();
         const finalShortcut$ = merge(...observables);
-        const overallLogDetails = `Triggers: [ ${logParts.join(", ")} ]`;
+        const logParts = parsedTriggers.map(t => {
+            const parts: string[] = [`key: "${t.key}"`];
+            if (t.ctrlKey) parts.push("ctrl: true");
+            if (t.altKey) parts.push("alt: true");
+            if (t.shiftKey) parts.push("shift: true");
+            if (t.metaKey) parts.push("meta: true");
 
-        this._registerShortcut(config, terminator$, ShortcutTypes.Combination, overallLogDetails);
+            // For a single key with no modifiers, match the original log format
+            if (parts.length === 1) {
+                return `{ ${parts[0]} (no mods) }`;
+            }
+            return `{ ${parts.join(", ")} }`;
+        });
+        const logDetails = `Triggers: [ ${logParts.join(", ")} ]`;
+
+        this._registerShortcut(config, terminator$, ShortcutTypes.Combination, logDetails, parsedTriggers);
 
         return finalShortcut$.pipe(
             tap(event => {
@@ -778,22 +779,13 @@ export class Hotkeys {
     public addSequence(config: KeySequenceConfig): Observable<KeyboardEvent> {
         const { sequence, context, preventDefault = false, id, sequenceTimeoutMs, strict = false, target = document, event: eventType = "keydown" } = config;
 
-        let configuredSequence: StandardKey[];
-        if (typeof sequence === "string") {
-            configuredSequence = this._parseSequenceString(sequence);
-        } else {
-            configuredSequence = sequence;
+        const configuredSequence = this._normalizeSequence(sequence, id);
+
+        if (!configuredSequence || configuredSequence.length === 0) {
+            console.error(`${Hotkeys.LOG_PREFIX} Sequence for shortcut "${id}" is empty or invalid. Shortcut not added.`);
+            return EMPTY;
         }
 
-        if (!Array.isArray(configuredSequence) || configuredSequence.length === 0) {
-            console.warn(`${Hotkeys.LOG_PREFIX} Sequence for shortcut "${id}" is empty or invalid. Shortcut not added.`);
-            return EMPTY;
-        }
-        // Corrected validation: Check for actual empty string, not a string that trims to empty.
-        if (configuredSequence.some(key => typeof key !== "string" || (key as string) === "")) { // StandardKey type should prevent empty strings.
-            console.warn(`${Hotkeys.LOG_PREFIX} Invalid key in sequence for shortcut "${id}". All keys must be non-empty string values from Keys. Shortcut not added.`);
-            return EMPTY;
-        }
         if (context && strict) {
              console.warn(`${Hotkeys.LOG_PREFIX} Shortcut "${id}" has both a context and the "strict" flag. The "strict" flag will be ignored.`);
         }

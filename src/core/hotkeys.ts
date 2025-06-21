@@ -25,10 +25,6 @@ interface SequenceScanState {
 
 interface ShortcutConfigBase {
     id: string;
-    /**
-     * @deprecated The callback property is deprecated. `addCombination` and `addSequence` now return an Observable. Please subscribe to it instead.
-     */
-    callback?: (event: KeyboardEvent) => void;
     context?: string | null;
     preventDefault?: boolean;
     description?: string;
@@ -646,10 +642,6 @@ export class Hotkeys {
     public addCombination(config: KeyCombinationConfig): Observable<KeyboardEvent> {
         const { keys, context, preventDefault = false, id, strict = false, target = document, event: eventType = "keydown" } = config;
 
-        if (config.callback) {
-            console.warn(`${Hotkeys.LOG_PREFIX} Shortcut "${id}" was provided a callback, but "addCombination" now returns an Observable. The callback will be ignored. Please subscribe to the returned Observable instead.`);
-        }
-
         if (context != null && strict) {
             console.warn(`${Hotkeys.LOG_PREFIX} Shortcut "${id}" has both a context(${context}) and the "strict" flag. The "strict" flag will be ignored.`);
         }
@@ -778,10 +770,6 @@ export class Hotkeys {
      */
     public addSequence(config: KeySequenceConfig): Observable<KeyboardEvent> {
         const { sequence, context, preventDefault = false, id, sequenceTimeoutMs, strict = false, target = document, event: eventType = "keydown" } = config;
-
-        if (config.callback) {
-            console.warn(`${Hotkeys.LOG_PREFIX} Shortcut "${id}" was provided a callback, but "addSequence" now returns an Observable. The callback will be ignored. Please subscribe to the returned Observable instead.`);
-        }
 
         let configuredSequence: StandardKey[];
         if (typeof sequence === "string") {

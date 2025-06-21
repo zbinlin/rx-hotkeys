@@ -382,7 +382,6 @@ A hook to get direct access to the `Hotkeys` manager instance.
 * `strict?: boolean` (optional): If `true` and the shortcut has no `context`, it will only fire when no other context is active. Defaults to `false`.
 * `target?: HTMLElement` (optional): The DOM element to attach the listener to. Defaults to `document`.
 * `event?: "keydown" | "keyup"` (optional): The keyboard event to listen for. Defaults to `"keydown"`.
-* `callback?: (event: KeyboardEvent) => void` (**@deprecated**): This property is deprecated. Subscribe to the `Observable` returned by `addCombination` instead.
 
 #### `KeySequenceConfig`
 

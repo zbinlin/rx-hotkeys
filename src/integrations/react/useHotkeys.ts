@@ -7,8 +7,8 @@ import {
 import { useHotkeysManager }  from "./provider.js";
 
 // Define options for the new hooks, excluding properties managed by the hook itself.
-export type HotkeyHookOptions = Omit<KeyCombinationConfig, "id" | "keys" | "callback">;
-export type SequenceHookOptions = Omit<KeySequenceConfig, "id" | "sequence" | "callback">;
+export type HotkeyHookOptions = Omit<KeyCombinationConfig, "id" | "keys">;
+export type SequenceHookOptions = Omit<KeySequenceConfig, "id" | "sequence">;
 
 // Internal hook to handle the common logic for both combination and sequence hotkeys
 function useBaseHotkey(

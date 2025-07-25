@@ -1289,4 +1289,53 @@ describe("Hotkeys Library (Node.js Test Runner)", () => {
             assert.strictEqual(seqComplete.calledCount, 1, "Sequence observable should have completed");
         });
     });
+
+    describe("AddEventListenerOptions", () => {
+        let parentEl: HTMLElement, childEl: HTMLElement;
+        let parentCallback: ReturnType<typeof createMockFn>;
+        let childCallback: ReturnType<typeof createMockFn>;
+
+        beforeEach(() => {
+            parentEl = document.createElement("div");
+            childEl = document.createElement("div");
+            parentEl.appendChild(childEl);
+            document.body.appendChild(parentEl);
+            parentCallback = createMockFn();
+            childCallback = createMockFn();
+        });
+
+        afterEach(() => {
+            parentEl.remove();
+        });
+
+        it(`should respect the "capture" option`, () => {
+            // Parent listener with capture: true
+            keyManager.addCombination({
+                id: "parentCapture",
+                keys: "a",
+                target: parentEl,
+                options: { capture: true }
+            }).subscribe(() => {
+                parentCallback(performance.now());
+            });
+
+            // Child listener (default, bubble phase)
+            keyManager.addCombination({
+                id: "childBubble",
+                keys: "a",
+                target: childEl
+            }).subscribe(() => {
+                childCallback(performance.now());
+            });
+
+            // Dispatch the event on the innermost element
+            dispatchKeyEvent(childEl, "a");
+
+            assert.strictEqual(parentCallback.calledCount, 1, "Parent (capture) callback should have been called");
+            assert.strictEqual(childCallback.calledCount, 1, "Child (bubble) callback should have been called");
+
+            // The crucial check: the capture phase listener must fire before the bubble phase one.
+            assert.ok(parentCallback.lastArgs[0] < childCallback.lastArgs[0], "Parent listener (capture) should fire before the child listener (bubble)");
+        });
+    });
 });

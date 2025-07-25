@@ -372,28 +372,21 @@ A hook to get direct access to the `Hotkeys` manager instance.
 
 ### Configuration Interfaces
 
-#### `KeyCombinationConfig`
+#### `ShortcutConfigBase` (Shared properties)
 
-* `id: string` (required): Unique identifier for the shortcut.
-* `keys: KeyCombinationTrigger | KeyCombinationTrigger[]` (required): Defines the key(s). Can be a string (`"ctrl+s"`), a shorthand `StandardKey` (`Keys.Escape`), an object (`{ key: Keys.S, ctrlKey: true }`), or an array of these.
+* `id: string`: Unique identifier for the shortcut.
 * `context?: string | null`: Specifies the context in which this shortcut is active. If `null` or `undefined`, it's a global shortcut.
 * `preventDefault?: boolean`: If `true`, `event.preventDefault()` will be called when the shortcut triggers. Defaults to `false`.
 * `description?: string`: An optional description for the shortcut (e.g., for help menus).
-* `strict?: boolean` (optional): If `true` and the shortcut has no `context`, it will only fire when no other context is active. Defaults to `false`.
-* `target?: HTMLElement` (optional): The DOM element to attach the listener to. Defaults to `document`.
-* `event?: "keydown" | "keyup"` (optional): The keyboard event to listen for. Defaults to `"keydown"`.
+* `strict?: boolean`: If `true` and the shortcut has no `context`, it will only fire when no other context is active. Defaults to `false`.
+* `target?: HTMLElement`: The DOM element to attach the listener to. Defaults to `document`.
+* `event?: "keydown" | "keyup"`: The keyboard event to listen for. Defaults to `"keydown"`.
+* `options?: AddEventListenerOptions`: Optional. Advanced options to pass directly to the underlying `addEventListener` call. Use this to control behaviors like `capture`, `passive`, or `once`.
 
-#### `KeySequenceConfig`
 
-* `id: string` (required): Unique identifier.
-* `sequence: string | StandardKey[]` (required): An array of `StandardKey` values or a string representation (e.g., `"g -> i"`).
-* `context?: string | null`: Context for activation.
-* `preventDefault?: boolean`: If `true`, `event.preventDefault()` is called for the last event in the sequence. Defaults to `false`.
-* `description?: string`: Optional description.
-* `sequenceTimeoutMs?: number`: Optional. Maximum time (in milliseconds) allowed between consecutive key presses in the sequence.
-* `strict?: boolean` (optional): If `true` and the shortcut has no `context`, it will only fire when no other context is active.
-* `target?: HTMLElement` (optional): The DOM element to attach the listener to. Defaults to `document`.
-* `event?: "keydown" | "keyup"` (optional): The keyboard event to listen for. Defaults to `"keydown"`.
+#### `KeyCombinationConfig`
+
+* `keys: KeyCombinationTrigger | KeyCombinationTrigger[]` (required): Defines the key(s). Can be a string (`"ctrl+s"`), a shorthand `StandardKey` (`Keys.Escape`), an object (`{ key: Keys.S, ctrlKey: true }`), or an array of these.
 
 ```
 type KeyCombinationTrigger = {
@@ -405,8 +398,12 @@ type KeyCombinationTrigger = {
 } | StandardKey | string;
 ```
 
-*
-*
+
+#### `KeySequenceConfig`
+
+* `sequence: string | StandardKey[]` (required): An array of `StandardKey` values or a string representation (e.g., `"g -> i"`).
+* `sequenceTimeoutMs?: number`: Optional. Maximum time (in milliseconds) allowed between consecutive key presses in the sequence.
+
 
 ## Key Matching & Normalization
 

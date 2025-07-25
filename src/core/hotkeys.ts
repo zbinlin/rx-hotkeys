@@ -51,6 +51,13 @@ interface ShortcutConfigBase {
      * @default "keydown"
      */
     event?: "keydown" | "keyup";
+    /**
+     * Optional: Advanced options to pass directly to the underlying `addEventListener` call.
+     * Use this to control behaviors like `capture`, `passive`, or `once`.
+     * See: https://developer.mozilla.org/en-US/docs/Web/API/EventTarget/addEventListener
+     * @default undefined
+     */
+    options?: AddEventListenerOptions;
 }
 
 /**
@@ -195,8 +202,9 @@ export class Hotkeys {
     // --- Sentinel value for no override ---
     private static readonly NO_OVERRIDE = Symbol("No Hotkey Override");
 
-    private keydownStreams: WeakMap<EventTarget, Observable<KeyboardEvent>>;
-    private keyupStreams: WeakMap<EventTarget, Observable<KeyboardEvent>>;
+    // NEW: A unified stream cache that handles different listener options.
+    private eventStreams: WeakMap<EventTarget, Map<string, Observable<KeyboardEvent>>>;
+
     private activeShortcuts: Map<string, ActiveShortcut>;
     private debugMode: boolean;
 
@@ -223,8 +231,7 @@ export class Hotkeys {
         if (typeof document === "undefined" || typeof performance === "undefined") {
             throw new Error(`${Hotkeys.LOG_PREFIX} Hotkeys can only be used in a browser environment.`);
         }
-        this.keydownStreams = new WeakMap();
-        this.keyupStreams = new WeakMap();
+        this.eventStreams = new WeakMap(); // Initialize the new unified cache
         this.activeShortcuts = new Map();
 
         // The context stack is the source of truth for the active context.
@@ -300,23 +307,45 @@ export class Hotkeys {
         return results;
     }
 
+
     /**
-     * Gets or creates a shared event stream for a given event type and target.
+     * [PRIVATE] Generates a unique key for the stream cache based on event type and options.
+     */
+    private _getStreamCacheKey(eventType: "keydown" | "keyup", options?: AddEventListenerOptions): string {
+        if (!options) {
+            return eventType;
+        }
+        // Creates a stable key, e.g., "keydown:c=true:p=false:o=false"
+        const capture = !!options.capture;
+        const passive = !!options.passive;
+        const once = !!options.once;
+        return `${eventType}:c=${capture}:p=${passive}:o=${once}`;
+    }
+
+    /**
+     * Gets or creates a shared event stream for a given event type, target, and options.
      * @param eventType The type of event ("keydown" or "keyup").
      * @param target The DOM element to attach the listener to.
+     * @param options The AddEventListenerOptions.
      * @returns A shared Observable for the specified event.
      */
-    private _getEventStream(eventType: "keydown" | "keyup", target: EventTarget): Observable<KeyboardEvent> {
-        const streamCache = eventType === "keydown" ? this.keydownStreams : this.keyupStreams;
-        if (!streamCache.has(target)) {
-            const newStream = fromEvent<KeyboardEvent>(target, eventType).pipe(share());
-            streamCache.set(target, newStream);
+    private _getEventStream(eventType: "keydown" | "keyup", target: EventTarget, options?: AddEventListenerOptions): Observable<KeyboardEvent> {
+        if (!this.eventStreams.has(target)) {
+            this.eventStreams.set(target, new Map());
+        }
+        const targetCache = this.eventStreams.get(target)!;
+        const cacheKey = this._getStreamCacheKey(eventType, options);
+
+        if (!targetCache.has(cacheKey)) {
+            // Create the new stream with the specified options
+            const newStream = fromEvent<KeyboardEvent>(target, eventType, options!).pipe(share());
+            targetCache.set(cacheKey, newStream);
             if (this.debugMode) {
                 const targetName = target === document ? "document" : `element "${(target as HTMLElement).id || (target as HTMLElement).tagName}"`;
-                console.log(`${Hotkeys.LOG_PREFIX} Created new shared listener for "${eventType}" on ${targetName}.`);
+                console.log(`${Hotkeys.LOG_PREFIX} Created new shared listener for "${cacheKey}" on ${targetName}.`);
             }
         }
-        return streamCache.get(target)!;
+        return targetCache.get(cacheKey)!;
     }
 
     /**
@@ -650,7 +679,7 @@ export class Hotkeys {
      * ```
      */
     public addCombination(config: KeyCombinationConfig): Observable<KeyboardEvent> {
-        const { keys, context, preventDefault = false, id, strict = false, target = document, event: eventType = "keydown" } = config;
+        const { keys, context, preventDefault = false, id, strict = false, target = document, event: eventType = "keydown", options } = config;
 
         if (context != null && strict) {
             console.warn(`${Hotkeys.LOG_PREFIX} Shortcut "${id}" has both a context(${context}) and the "strict" flag. The "strict" flag will be ignored.`);
@@ -663,7 +692,7 @@ export class Hotkeys {
             return EMPTY;
         }
 
-        const sourceStream$ = this._getEventStream(eventType, target);
+        const sourceStream$ = this._getEventStream(eventType, target, options);
         const observables: Observable<KeyboardEvent>[] = [];
 
         for (const trigger of parsedTriggers) {
@@ -777,7 +806,7 @@ export class Hotkeys {
      * ```
      */
     public addSequence(config: KeySequenceConfig): Observable<KeyboardEvent> {
-        const { sequence, context, preventDefault = false, id, sequenceTimeoutMs, strict = false, target = document, event: eventType = "keydown" } = config;
+        const { sequence, context, preventDefault = false, id, sequenceTimeoutMs, strict = false, target = document, event: eventType = "keydown", options } = config;
 
         const configuredSequence = this._normalizeSequence(sequence, id);
 
@@ -792,7 +821,7 @@ export class Hotkeys {
 
         const sequenceLength = configuredSequence.length;
         let shortcut$: Observable<KeyboardEvent[]>;
-        const sourceStream$ = this._getEventStream(eventType, target);
+        const sourceStream$ = this._getEventStream(eventType, target, options);
         const baseKeydownStream$ = this.filterByContext(sourceStream$, context, strict);
 
         if (sequenceTimeoutMs && sequenceTimeoutMs > 0) {

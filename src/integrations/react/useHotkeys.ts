@@ -49,7 +49,7 @@ function useBaseHotkey(
             manager.remove(hotkeyId);
         };
     // Re-run the effect if the manager, keys, options, or callback changes.
-    }, [manager, hotkeyId, keyOrSequence, memoizedOptions, onHotkey, type]);
+    }, [manager, hotkeyId, JSON.stringify(keyOrSequence), memoizedOptions, onHotkey, type]);
 }
 
 
